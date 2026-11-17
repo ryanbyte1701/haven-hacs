@@ -2,6 +2,14 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-17 (v10)
+
+- Settings → Diagnostics: the Copy summary, Report on GitHub and Download buttons wrap on a phone instead of
+  running off the side of the screen.
+
+- Sense appliances show as off, not offline, while they draw no power (Sense marks them "unavailable" then), so they no
+  longer inflate the offline count.
+
 ## 2026-11-17 (v9)
 
 - History charts draw the line straight across gaps between readings, for devices that only report now and then

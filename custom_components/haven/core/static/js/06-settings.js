@@ -463,9 +463,9 @@
             addresses, e-mail addresses, host names, tokens and passwords are removed; settings values are never included.
             Open the file to check before you share it.</p>
           <div id="diag-sum" class="muted small"></div><div id="diag-link" class="diag-link" hidden></div>
-          <div class="set-actions"><button type="button" class="tonal-btn" data-diag-copy>${icon("content_copy")}Copy summary</button>
+          <div class="set-actions diag-actions"><button type="button" class="tonal-btn" data-diag-copy>${icon("content_copy")}Copy summary</button>
             <button type="button" class="tonal-btn" data-diag-gh>${icon("bug_report")}Report on GitHub</button>
-            <span style="flex:1"></span><button type="button" class="filled-btn" data-diag-dl>${icon("download")}Download</button></div>
+            <button type="button" class="filled-btn" data-diag-dl>${icon("download")}Download</button></div>
           <p class="muted small"><b>Report on GitHub</b> opens a new issue on Haven's GitHub with the summary filled in. Download the
             file too and drag it into the issue before you submit it, so it can be reviewed in full.</p>
         </section></div>`;

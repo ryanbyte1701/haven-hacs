@@ -131,6 +131,7 @@ NUT_SUFFIXES = (("_status_data", "ups.status"), ("_battery_charge", "battery.cha
                 ("_nominal_real_power", "ups.realpower.nominal"), ("_real_power", "ups.realpower"), ("_load", "ups.load"),
                 ("_status", "ups.status.display"))
 # the "Status" sensor's words (nut/const.py STATE_TYPES) -> NUT status flags, for when "Status data" is disabled
+STANDBY_WHEN_UNAVAILABLE = {"sense"}     # integrations whose entities are "unavailable" simply while the appliance is off
 NUT_STATUS_WORDS = {"online": "OL", "on battery": "OB", "low battery": "LB", "high battery": "HB",
                     "battery needs replacement": "RB", "battery charging": "CHRG", "battery discharging": "DISCHRG",
                     "bypass active": "BYPASS", "runtime calibration": "CAL", "offline": "OFF", "overloaded": "OVER",
@@ -630,6 +631,13 @@ class HomeAssistantAdapter(Adapter):
             out = {reg.get("platform"), self.entry_domains.get(reg.get("config_entry_id") or "")}
         return {d for d in out if isinstance(d, str) and d}
 
+    def _eff(self, eid: str, state):
+        """The state to use for an entity. Sense lists every appliance it has detected and marks it "unavailable"
+        whenever it isn't drawing power: that means off, not broken, so such an entity reads as off."""
+        if state == "unavailable" and STANDBY_WHEN_UNAVAILABLE & self._integrations(eid):
+            return "off"
+        return state
+
     def _main_integrations(self, eid: str) -> set[str]:
         """The integration(s) a device comes from, as Settings lists them: its config entries' domains (an ecobee
         thermostat is "ecobee", not every identifier namespace it carries); otherwise _integrations()."""
@@ -725,7 +733,7 @@ class HomeAssistantAdapter(Adapter):
                 outlet = outlet or (st.get("attributes") or {}).get("device_class") == "outlet"
             elif dom == "light":
                 has_light = True
-            mapped = map_entity(eid, st.get("state"), self._attrs(eid, st.get("attributes"))) or {}
+            mapped = map_entity(eid, self._eff(eid, st.get("state")), self._attrs(eid, st.get("attributes"))) or {}
             # A device's extra switches (a Ring camera's Siren, Motion detection, Privacy mode…) are their own
             # controls named after the entity, not the device's "Power" switch.
             extra = self._switch_suffix(eid, st, str(name)) if dom in ("switch", "input_boolean", "siren") else None
@@ -814,7 +822,7 @@ class HomeAssistantAdapter(Adapter):
         if nut:
             attrs["nut_vars"] = nv
         self.hub.set_attributes(did, attrs)
-        online = any(s.get("state") not in ("unavailable",) for s in sts)
+        online = any(self._eff(s["entity_id"], s.get("state")) != "unavailable" for s in sts)
         self.hub.set_values(did, {k: v for k, v in values.items() if v is not None}, online=online)
         return True
 
@@ -827,7 +835,8 @@ class HomeAssistantAdapter(Adapter):
             self.hub.set_attributes(did, {"nut_vars": nv})
             self.hub.set_values(did, parse_status(nv), online=ns.get("state") != "unavailable")
             return
-        mapped = map_entity(eid, ns.get("state"), self._attrs(eid, ns.get("attributes"))) or {}
+        state = self._eff(eid, ns.get("state"))
+        mapped = map_entity(eid, state, self._attrs(eid, ns.get("attributes"))) or {}
         names = self.entity_caps.get(eid, {})
         vals = {names[c]: v for c, (v, _kw) in mapped.items() if v is not None and c in names}
         if eid.startswith("weather."):
@@ -839,7 +848,7 @@ class HomeAssistantAdapter(Adapter):
                 self.weather_state[eid] = ns.get("state")
                 self._forecast_due.add(eid)
                 self._forecast_now.set()
-        self.hub.set_values(did, vals, online=ns.get("state") != "unavailable")
+        self.hub.set_values(did, vals, online=state != "unavailable")
 
     # ---------------- weather forecasts ----------------
     async def _forecaster(self):

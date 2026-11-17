@@ -364,6 +364,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 .m3-dialog .textfield span { background: var(--md-surface-container-high); }
 .set-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .set-actions .tonal-btn { flex: none; }
+.diag-actions { flex-wrap: wrap; justify-content: flex-start; }
+.diag-actions > button { flex: 1 1 auto; min-width: 0; justify-content: center; }
 .set-card .segmented { margin-bottom: 4px; }
 .servers { margin-bottom: 8px; }
 .hostlist { margin-bottom: 8px; }
