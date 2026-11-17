@@ -2,6 +2,12 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-17 (v9)
+
+- History charts draw the line straight across gaps between readings, for devices that only report now and then
+  or on a change, instead of breaking it. Each reading next to a gap (or every reading, when there are only a few)
+  gets a dot, so you can see where the real readings are. Settings → Appearance → *Connect readings* turns this off.
+
 ## 2026-11-17 (v8)
 
 - Smoother with many devices: a live update now changes just that device's card straight away, and the rest of the

@@ -248,6 +248,9 @@
   // ---------- chart styles (Settings → Appearance → Charts), shared by sparklines and History ----------
   const CHART_STYLES = [["area", "Area", "show_chart"], ["line", "Line", "timeline"], ["smooth", "Smooth", "waves"], ["steps", "Steps", "stairs"], ["bars", "Bars", "bar_chart"]];
   let chartStyle = load("chartStyle", "area");
+  // history charts: draw the line straight across a stretch without readings (devices that only report on a
+  // change, or now and then) instead of breaking it; Settings → Appearance can turn this off
+  let joinGaps = load("joinGaps", "true") !== "false";
   if (!CHART_STYLES.some(c => c[0] === chartStyle)) chartStyle = "area";
   const f1x = v => v.toFixed(1);
   function segPath(seg, style) {

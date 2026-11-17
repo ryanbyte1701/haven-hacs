@@ -159,10 +159,13 @@
     const gap = Math.max(median * 4, ((t1 - t0) / 300) * 6, 900);
     const segs = []; let dots = "";
     pts.forEach((p, i) => {
-      const joined = i && p.t - pts[i - 1].t <= gap, next = i + 1 < pts.length && pts[i + 1].t - p.t <= gap;
+      const near = i && p.t - pts[i - 1].t <= gap, nearNext = i + 1 < pts.length && pts[i + 1].t - p.t <= gap;
+      const joined = i && (joinGaps || near), next = i + 1 < pts.length && (joinGaps || nearNext);
       const xy = [X(p.t), Y(conv(p.v))];
       if (joined) segs[segs.length - 1].push(xy); else segs.push([xy]);
-      if (!joined && !next && chartStyle !== "bars") dots += `<circle class="lone" cx="${f1x(xy[0])}" cy="${f1x(xy[1])}" r="2.5"/>`;
+      // a reading next to a gap gets a dot: with the line joined, the dots show where the readings really are
+      if ((joinGaps ? (pts.length <= 48 || !(near && nearNext)) && pts.length > 1 : !joined && !next) && chartStyle !== "bars")
+        dots += `<circle class="lone" cx="${f1x(xy[0])}" cy="${f1x(xy[1])}" r="2.5"/>`;
     });
     const plotW = W - P.l - P.r, nb = Math.max(20, Math.round(plotW / 8));
     const plot = flat ? plotSvg(segs, H - P.b, "line") : chartStyle === "bars"

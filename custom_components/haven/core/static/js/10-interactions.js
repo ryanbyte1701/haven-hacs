@@ -179,6 +179,7 @@
     const us = t.closest("#unit-seg [data-unit]"); if (us) { unit = us.dataset.unit; store("unit", unit); renderSettings(); return; }
     const ch = t.closest("#chart-seg [data-chart]");
     if (ch) { chartStyle = ch.dataset.chart; store("chartStyle", chartStyle); renderSettings(); schedule(); return; }
+    if (t.closest("[data-joingaps]")) { joinGaps = !joinGaps; store("joinGaps", joinGaps); renderSettings(); schedule(); return; }
     const cs = t.closest("#style-seg [data-cstyle]"); if (cs) { cardStyle = cs.dataset.cstyle; store("cardStyle", cardStyle); document.body.dataset.cardStyle = cardStyle; renderSettings(); return; }
     const gd = t.closest("#groupby-seg [data-gbdefault]"); if (gd) { store("groupByDefault", gd.dataset.gbdefault); renderSettings(); return; }
     const ls = t.closest("#layout-seg [data-layout]"); if (ls) { mode = ls.dataset.layout; store("viewmode", mode); renderSettings(); renderHeader(); return; }
