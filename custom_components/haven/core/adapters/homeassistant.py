@@ -40,7 +40,7 @@ from ..models import Device, cap
 from .base import Adapter
 from .nut import UPS_CAPS, parse_status
 
-DOMAINS = ["sensor", "binary_sensor", "light", "switch", "input_boolean", "lock", "valve", "cover",
+DOMAINS = ["sensor", "binary_sensor", "light", "switch", "input_boolean", "siren", "lock", "valve", "cover",
            "alarm_control_panel", "fan", "climate", "weather"]
 
 BINARY = {   # binary_sensor device_class -> (capability, on value, off value)
@@ -60,6 +60,31 @@ SENSOR = {   # sensor device_class -> capability
     "water": "water_usage_today", "volume_flow_rate": "flow_rate", "signal_strength": "rssi",
 }
 SKIP_CATEGORIES = {"config", "diagnostic"}
+
+# Home Assistant integrations whose devices are cars (Haven groups them as "Cars") or network equipment ("Network").
+VEHICLE_DOMAINS = {
+    "kia_uvo", "hyundai_kia_connect", "hyundai_bluelink", "bluelink", "genesis",            # Hyundai / Kia / Genesis
+    "tesla_fleet", "teslemetry", "tessie", "tesla_custom", "tesla",                       # Tesla
+    "bmw_connected_drive", "mbapi2020", "mercedes_me", "volvo", "volvooncall", "polestar_api", "renault",
+    "nissan_leaf", "toyota", "mytoyota", "lexus", "subaru", "mazda", "fordpass", "ford", "volkswagen_we_connect_id",
+    "volkswagencarnet", "audiconnect", "myskoda", "skodaconnect", "cupra_we_connect", "rivian", "smartcar",
+    "porsche", "honda", "jlrincontrol", "mg_saic", "byd", "leapmotor",
+}
+NETWORK_DOMAINS = {
+    "unifi", "tplink_omada", "tplink_deco", "tplink_router", "netgear", "netgear_lte", "fritz", "fritzbox_callmonitor",
+    "asuswrt", "asusrouter", "openwrt", "luci", "ubus", "mikrotik", "pfsense", "opnsense", "keenetic_ndms2", "huawei_lte",
+    "zyxel", "eero", "google_wifi", "starlink", "upnp", "speedtestdotnet", "fastdotcom", "ping", "snmp", "synology_dsm",
+    "qnap", "qnap_qsw", "glances", "netdata", "nmap_tracker", "plume", "orbi", "linksys_smart", "sky_hub", "vodafone_station",
+}
+APPLIANCE_DOMAINS = {
+    "home_connect", "miele", "lg_thinq", "smartthinq_sensors", "whirlpool", "electrolux", "electrolux_status", "ge_home",
+    "hon", "haier", "aeg", "frigidaire", "bosch_shc_appliances", "samsung_family_hub", "smartthings_appliances",
+    "rinnai", "aosmith", "econet", "sensibo", "midea_ac_lan", "midea_dehumidifier_lan", "gree", "daikin", "fujitsu_hvac",
+    "dreame_vacuum", "ecovacs", "sharkiq", "irobot", "roomba", "neato", "eufy_robovac", "roborock",
+}
+APPLIANCE_HINT = re.compile(r"washer|washing|dryer|dishwasher|fridge|refrigerator|freezer|oven|range hood|cooktop|"
+                            r"microwave|coffee|espresso|kettle|ice maker|water heater|dehumidifier|humidifier", re.I)
+VEHICLE_HINT = re.compile(r"odometer|mileage|driving range|ev range|fuel level|charge port|trunk|tire|tyre", re.I)
 
 # Home Assistant integration domain -> the Haven integration (Settings section label) that covers it.
 # Core integrations are in home-assistant/core homeassistant/components/<domain>; custom (HACS) ones
@@ -161,6 +186,11 @@ def map_entity(entity_id: str, state: str, attrs: dict) -> dict[str, tuple[Any, 
     elif domain == "sensor":
         v = _num(state)
         name = SENSOR.get(dc)
+        low = entity_id.lower()
+        if dc == "distance" or (unit in ("km", "mi") and v is not None):    # cars: odometer and driving range
+            name = "odometer" if ("odometer" in low or "mileage" in low) else "range" if "range" in low else "distance"
+        elif "fuel_level" in low and unit == "%":
+            name = "fuel_level"
         if name is None:
             if v is None:
                 return None                                    # text sensors aren't imported
@@ -184,6 +214,8 @@ def map_entity(entity_id: str, state: str, attrs: dict) -> dict[str, tuple[Any, 
             out["color_temp"] = (_num(attrs.get("color_temp_kelvin")), {})
         if any(m in ("hs", "rgb", "rgbw", "rgbww", "xy") for m in modes):
             out["color"] = (color_hex(attrs), {})
+    elif domain == "siren":                             # e.g. a Ring camera's siren: its own control, never "Power"
+        out["switch"] = (None if unavailable else state == "on", {"label": "Siren"})
     elif domain in ("switch", "input_boolean"):
         out["switch"] = (None if unavailable else state == "on", {})
     elif domain == "fan":
@@ -605,14 +637,20 @@ class HomeAssistantAdapter(Adapter):
                 self.entity_dev[eid] = did
                 self.entity_caps[eid] = []
                 continue
-            if dom == "switch":
+            if dom == "switch" and not self._switch_suffix(eid, st, str(name)):
                 has_switch = True
                 outlet = outlet or (st.get("attributes") or {}).get("device_class") == "outlet"
             elif dom == "light":
                 has_light = True
             mapped = map_entity(eid, st.get("state"), st.get("attributes") or {}) or {}
+            # A device's extra switches (a Ring camera's Siren, Motion detection, Privacy mode…) are their own
+            # controls named after the entity, not the device's "Power" switch.
+            extra = self._switch_suffix(eid, st, str(name)) if dom in ("switch", "input_boolean", "siren") else None
             names = []
             for cname, (v, kw) in mapped.items():
+                if extra and cname == "switch":
+                    cname = "switch_" + re.sub(r"[^a-z0-9]+", "_", extra.lower()).strip("_")[:24]
+                    kw = {**kw, "label": extra[:40]}
                 if cname == "energy_total":            # TP-Link/Tapo & co: "Today's" / "This month's consumption"
                     hint = f"{eid} {(st.get('attributes') or {}).get('friendly_name') or ''}".lower()
                     if "today" in hint or "daily" in hint:
@@ -623,8 +661,9 @@ class HomeAssistantAdapter(Adapter):
                 if final in caps:                          # two entities give the same reading: keep both
                     final = f"{cname}_{re.sub(r'[^A-Za-z0-9_]', '_', eid.split('.', 1)[1])[-20:]}"
                 kw = dict(kw)
-                if eid.split(".")[0] in ("light", "switch", "input_boolean", "lock", "valve", "alarm_control_panel", "fan", "cover") \
-                        and cname in ("light", "switch", "lock", "valve", "alarm_panel", "brightness", "color_temp", "color", "fan_speed", "action"):
+                if eid.split(".")[0] in ("light", "switch", "input_boolean", "siren", "lock", "valve", "alarm_control_panel", "fan", "cover") \
+                        and (cname in ("light", "switch", "lock", "valve", "alarm_panel", "brightness", "color_temp", "color", "fan_speed", "action")
+                             or cname.startswith("switch_")):
                     kw["writable"] = True
                 label = (st.get("attributes") or {}).get("friendly_name")
                 if cname in ("value", "state") and label:
@@ -651,6 +690,33 @@ class HomeAssistantAdapter(Adapter):
             return False
         # Smart plugs and power strips (TP-Link/Tapo, Shelly Plug, Kasa…): a switch with an outlet device class or its
         # own power/energy reading. They then appear on the Power page and get the plug card.
+        if kind is None:
+            doms = set().union(*(self._integrations(s_["entity_id"]) for s_ in sts)) if hasattr(self, "registry") else set()
+            hints = " ".join(str((s_.get("attributes") or {}).get("friendly_name") or s_["entity_id"]) for s_ in sts)
+            if doms & VEHICLE_DOMAINS or (len(sts) >= 3 and len(VEHICLE_HINT.findall(hints)) >= 2):
+                kind = "vehicle"
+            elif doms & NETWORK_DOMAINS:
+                kind = "network"
+            elif doms & APPLIANCE_DOMAINS or APPLIANCE_HINT.search(f"{name} {devreg.get('model') or ''}"):
+                kind = "appliance"
+        # doors vs windows: Home Assistant's device class decides which page a contact sensor goes on
+        dcs = {(x.get("attributes") or {}).get("device_class") for x in sts if x["entity_id"].startswith("binary_sensor.")}
+        opening = "window" if "window" in dcs else "door" if dcs & {"door", "garage_door"} else None
+        if kind in ("appliance", "vehicle", "network"):
+            # An appliance's "opening" (a water heater's shutoff valve, an oven or washer door) or a car's doors aren't
+            # the house's doors: keep them as readings, out of Doors and Security
+            for k in [k for k in caps if k == "contact" or k.startswith("contact_")]:
+                eid = self.cap_entity.pop((did, k), None)
+                suffix = self._switch_suffix(eid or "", next((x for x in sts if x["entity_id"] == eid), {}), str(name)) if eid else None
+                new = "opening_" + re.sub(r"[^a-z0-9]+", "_", (suffix or "door").lower()).strip("_")[:24]
+                while new in caps:
+                    new += "_"
+                caps[new] = cap(new, label=(suffix or "Door")[:40])
+                values[new] = values.pop(k, None)
+                del caps[k]
+                if eid:
+                    self.cap_entity[(did, new)] = eid
+                    self.entity_caps[eid] = [new if c == k else c for c in self.entity_caps.get(eid, [])]
         plug_model = bool(re.search(r"\b(P1\d\d\w*|P3\d\d\w*|TP25\w*|KP\d+\w*|HS1\d\d\w*|EP\d+\w*|HS300|KP\d+)\b|plug|outlet|strip",
                                     f"{devreg.get('model') or ''} {devreg.get('name') or ''}", re.I))
         if kind is None and has_switch and not has_light and (outlet or plug_model or any(
@@ -662,6 +728,8 @@ class HomeAssistantAdapter(Adapter):
         room = self._area_name(first["entity_id"]) or ((self.areas.get(devreg.get("area_id"))) if devreg else None)
         self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps))
         attrs = {"ha_entities": [s["entity_id"] for s in sts][:40]}
+        if opening and "contact" in caps:
+            attrs["opening"] = opening
         if kind:
             attrs["kind"] = kind
         if kind == "weather":
@@ -743,6 +811,22 @@ class HomeAssistantAdapter(Adapter):
             self.hub.set_attributes(did, fc, publish=True)
 
     # ---------------- control ----------------
+    @staticmethod
+    def _switch_suffix(eid: str, st: dict, device_name: str) -> str | None:
+        """The part of a switch's name after its device's name ("Front Camera Siren" -> "Siren"), or None when the
+        switch is the device itself (a plug's on/off)."""
+        fn = str((st.get("attributes") or {}).get("friendly_name") or "").strip()
+        dn = device_name.strip()
+        if eid.startswith("siren."):
+            rest = fn[len(dn):].strip(" -_:·") if dn and fn.lower().startswith(dn.lower()) else ""
+            return rest or "Siren"
+        if not fn or not dn or fn.lower() == dn.lower():
+            return None
+        if fn.lower().startswith(dn.lower()):
+            rest = fn[len(dn):].strip(" -_:·")
+            return None if rest.lower() in ("", "switch", "power", "outlet", "plug", "relay") else rest
+        return None
+
     async def command(self, device: Device, capability: str, value: Any):
         eid = self.cap_entity.get((device.id, capability))
         if not eid or self.ws is None:
@@ -753,7 +837,7 @@ class HomeAssistantAdapter(Adapter):
         if base in SERVICE:
             sdomain, service, data = SERVICE[base](value)
         elif capability in ("light", "switch") or base in ("light", "switch"):
-            sdomain, service = domain, "turn_on" if value else "turn_off"
+            sdomain, service = domain, "turn_on" if value else "turn_off"   # switch.*, input_boolean.*, siren.*
         elif capability == "brightness":
             sdomain, service, data = "light", "turn_on", {"brightness_pct": max(1, min(100, int(value)))}
         elif capability == "color_temp":

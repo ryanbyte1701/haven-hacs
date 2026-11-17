@@ -1329,3 +1329,30 @@ main > .table-wrap > .dtable { width: 100%; }
   .devtable td.c-bat .level { min-width: 0; }
   .devtable td.c-bat .level .bar { display: none; }
 }
+
+/* App bar on narrow screens: the title keeps room for "Good evening" and the date; the buttons move to their own
+   row only when they don't fit beside it */
+.appbar { flex-wrap: wrap; gap: 4px 8px; }
+.appbar > div:first-child { flex: 1 1 auto; min-width: min(100%, 250px); }
+.appbar > .actions { margin-left: auto; }
+@media (max-width: 599px) { .appbar.scrolled > div:first-child { min-width: 0; } .appbar.scrolled > .actions .groupby { display: none; } }
+
+/* device list behind a Home/summary tile */
+#devlist { min-width: min(420px, 92vw); }
+#devlist .devlist { display: flex; flex-direction: column; gap: 2px; max-height: 60vh; overflow: auto; margin: 8px -8px; }
+.devlist-row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; border-radius: var(--shape-m); cursor: pointer; min-height: 56px; }
+.devlist-row:hover, .devlist-row:focus-visible { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
+.devlist-row .ltext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.devlist-row .ltext small { color: var(--md-on-surface-variant); font-size: 12px; }
+.devlist-row .avatar { width: 40px; height: 40px; }
+#devlist .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.card[data-id] { cursor: pointer; }
+body.editing .card[data-id] { cursor: grab; }
+
+/* search on every device page */
+.pagesearch { margin: 0 0 12px; max-width: 520px; }
+.pagesearch[hidden] { display: none; }
+.pagesearch .search { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 16px; border-radius: var(--shape-full);
+  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }
+.pagesearch .search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--md-on-surface); font: 400 16px Roboto, sans-serif; outline: none; }

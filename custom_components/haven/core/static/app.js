@@ -24,6 +24,7 @@
   let cardStyle = load("cardStyle", "standard");
   let dragging = false, sortables = [];
   const FAV = "★ Favorites";
+  let edition = "og";        // "og" (Docker) or "hacs" (Home Assistant edition), from /api/config
 
   const SEEDS = { ocean: "#1E88E5", violet: "#6750A4", teal: "#00897B", sage: "#7C9A3D", desert: "#D9772B" };
   const GROUPS = {
@@ -37,10 +38,11 @@
   const PAGES = new Set(["battery", "power", "settings", "devices", "air"]);
   const pluginPages = {};   // id -> { label, icon, title, render(el), onDevices?() }
   const TABS = [["climate", "Climate", "thermostat"], ["lights", "Lights", "lightbulb"], ["water", "Water", "water_drop"],
-    ["doors", "Doors", "sensor_door"], ["security", "Security", "shield_lock"], ["controls", "Controls", "tune"]];
+    ["doors", "Doors", "sensor_door"], ["windows", "Windows", "window"], ["security", "Security", "shield_lock"],
+    ["controls", "Controls", "tune"], ["switches", "Switches", "toggle_on"], ["appliances", "Appliances", "kitchen"]];
   const TAB_IDS = TABS.map(t => t[0]);
-  const TITLES = { lights: "Lights", climate: "Climate", water: "Water", doors: "Doors", security: "Security", controls: "Controls",
-    battery: "Batteries", power: "Power", settings: "Settings", devices: "Devices", air: "Air quality" };
+  const TITLES = { lights: "Lights", climate: "Climate", water: "Water", doors: "Doors", security: "Security", controls: "Controls", windows: "Windows", switches: "Switches",
+    battery: "Batteries", power: "Power", settings: "Settings", devices: "Devices", air: "Air quality", appliances: "Appliances" };
   const LABEL = { humidity: "Humidity", moisture: "Soil", pressure: "Pressure", illuminance: "Light", co2: "CO₂", pm25: "PM2.5",
     wind_speed: "Wind", wind_gust: "Gust", rain_daily: "Rain", rain_rate: "Rate", uv: "UV", solar: "Solar",
     co_ppm: "CO", power: "Power", runtime: "Runtime", load: "Load", input_voltage: "Input", output_voltage: "Output",
@@ -55,7 +57,7 @@
   const kindOf = d => d.attributes?.kind || "";
   const META_ICON = { outdoor_temperature: "partly_cloudy_day", wind_speed: "air", wind_gust: "air", rain_daily: "rainy", rain_rate: "rainy", uv: "sunny", solar: "sunny",
     co2: "co2", pm25: "air", pressure: "science", illuminance: "light_mode", co_ppm: "detector_smoke", moisture: "grass",
-    runtime: "timer", load: "speed", input_voltage: "electrical_services", power: "bolt", brightness: "light_mode", color_temp: "thermostat", output_voltage: "electrical_services",
+    runtime: "timer", load: "speed", odometer: "speed", range: "route", fuel_level: "local_gas_station", input_voltage: "electrical_services", power: "bolt", brightness: "light_mode", color_temp: "thermostat", output_voltage: "electrical_services",
     voc: "aq", pm10: "air", aqi: "aq", co: "co2", filter_life: "filter_alt", cartridge_life: "filter_alt", flow_rate: "waves",
     water_pressure: "speed", water_usage_today: "water", free_chlorine: "science", orp: "science", ph: "water_ph",
     energy_session: "bolt", energy_today: "bolt", energy_month: "bolt", voltage: "electrical_services", current: "electrical_services", charge_time: "timer", clean_area: "grid_view", clean_time: "timer", main_brush_life: "cleaning_services", side_brush_life: "cleaning_services" };
@@ -111,6 +113,8 @@
   const batteryLow = d => { const b = val(d, "battery"); return (b != null && b <= 25) || val(d, "battery_low") === true; };
   const isOutdoor = d => /outdoor|weather|backyard|patio|garden/i.test(`${d.room} ${d.name}`);
   const isUps = d => has(d, "ups_status");
+  // window sensors (Home Assistant device class "window", or "window" in the name) get their own page, not Doors
+  const isWindow = d => d.attributes?.opening === "window" || (d.attributes?.opening !== "door" && /\bwindows?\b/i.test(d.name));
   const isPlug = d => kindOf(d) === "smart_plug";
   const coAlarm = d => has(d, "co") && typeof val(d, "co") !== "number";   // outdoor AQI services report CO as a number
   const isLight = d => d.attributes?.kind === "light" || d.attributes?.kind === "group" || (has(d, "light") && has(d, "brightness"));
@@ -126,11 +130,13 @@
     ["motion", "Motion & presence", "sensor_occupied"], ["camera", "Cameras & doorbells", "videocam"], ["alarm", "Alarm panels", "shield"],
     ["smoke", "Smoke & CO alarms", "detector_smoke"], ["leak", "Leak sensors", "water_damage"], ["valve", "Valves", "valve"],
     ["water", "Water", "water"], ["soil", "Soil moisture", "grass"], ["weather", "Weather", "partly_cloudy_day"], ["ups", "UPS", "battery_charging_full"],
-    ["ev", "EV chargers", "ev_station"], ["vacuum", "Vacuums", "vacuum"], ["other", "Other", "sensors"]];
+    ["ev", "EV chargers", "ev_station"], ["vehicle", "Cars", "directions_car"], ["network", "Network", "router"], ["vacuum", "Vacuums", "vacuum"], ["other", "Other", "sensors"]];
   const TYPE_RANK = Object.fromEntries(DEVICE_TYPES.map((t, i) => [t[0], i]));
   const TYPE_INFO = Object.fromEntries(DEVICE_TYPES.map(t => [t[0], t]));
   function deviceType(d) {
     const k = kindOf(d), any = (...ks) => ks.some(x => has(d, x));
+    if (k === "vehicle") return "vehicle";
+    if (k === "network") return "network";
     if (isThermostat(d)) return "thermostat";
     if (isUps(d)) return "ups";
     if (k === "ev_charger" || has(d, "charger_status")) return "ev";
@@ -174,6 +180,8 @@
     if (k === "thermostat") return ["thermostat", ["heating", "cooling"].includes(val(d, "hvac_action")) ? "active" : ""];
     if (k === "air_monitor") { const sc = val(d, "air_score"); return ["aq_indoor", sc != null && sc < 60 ? "warn" : ""]; }
     if (k === "smart_plug") return ["outlet", val(d, "switch") ? "active" : ""];
+    if (k === "vehicle") return ["directions_car", val(d, "lock") === "unlocked" ? "warn" : ""];
+    if (k === "network") return ["router", d.online ? "" : "warn"];
     if (k === "air_purifier") return ["air_purifier", val(d, "switch") ? "active" : ""];
     if (k === "ev_charger") { const c = val(d, "charger_status"); return ["ev_station", c === "charging" ? "active" : c === "fault" ? "bad" : ""]; }
     if (k === "vacuum") { const v = val(d, "vacuum_state"); return ["vacuum", v === "cleaning" || v === "returning" ? "active" : v === "error" ? "bad" : ""]; }
@@ -206,6 +214,7 @@
   const EV = { available: "Not plugged in", plugged_in: "Plugged in", charging: "Charging", done: "Charged", fault: "Fault", offline: "Offline" };
   function statusOf(d) {
     const k = kindOf(d);
+    if (k === "vehicle" && has(d, "lock")) return val(d, "lock") === "unlocked" ? ["Unlocked", "warn"] : [pretty(val(d, "lock") || "unknown"), ""];
     if (has(d, "vacuum_state")) { const v = val(d, "vacuum_state"); return [VAC[v] || pretty(v || "unknown"), v === "error" ? "bad" : ""]; }
     if (has(d, "charger_status")) { const v = val(d, "charger_status"); return [EV[v] || pretty(v || "unknown"), v === "fault" ? "bad" : ""]; }
     if (k === "irrigation_zone") return val(d, "watering") ? ["Watering", ""] : ["Idle", ""];
@@ -236,6 +245,13 @@
     return null;
   }
   function readingText(d) {
+    if (kindOf(d) === "vehicle") {           // cars: charge or fuel, then range
+      const parts = [];
+      if (val(d, "battery") != null) parts.push(`${Math.round(val(d, "battery"))}%`);
+      else if (val(d, "fuel_level") != null) parts.push(`${Math.round(val(d, "fuel_level"))}% fuel`);
+      if (val(d, "range") != null) parts.push(`${n(Math.round(val(d, "range")))} ${d.capabilities.range.unit || ""} range`.trim());
+      if (parts.length) return parts.join(" · ");
+    }
     if (has(d, "temperature")) return `${temp(val(d, "temperature"))}°${unit}`;
     if (has(d, "moisture")) return `${val(d, "moisture") == null ? "–" : Math.round(val(d, "moisture"))}% soil`;
     if (isUps(d)) return `${n(val(d, "battery"))}% · ${runtimeText(val(d, "runtime"))}`;
@@ -343,7 +359,7 @@
     if (c.valve?.writable) out.push(seg("valve", [["open", "Open", "water", val(d, "valve") === "open"], ["close", "Close", "valve", val(d, "valve") === "closed"]]));
     if (c.alarm_panel?.writable) { const s = val(d, "alarm_panel");
       out.push(seg("alarm_panel", [["disarm", "Off", "shield", s === "disarmed"], ["arm_home", "Home", "bedtime", s === "armed_home"], ["arm_away", "Away", "directions_walk", s === "armed_away"]])); }
-    if (c.switch?.writable) out.push(sw("switch", val(d, "switch"), "Power"));
+    if (c.switch?.writable) out.push(sw("switch", val(d, "switch"), c.switch.label || "Power"));
     // generic controls for any other writable capability (purifier modes, fan speed, charge limit, standby…)
     const HANDLED = new Set(["lock", "valve", "alarm_panel", "switch", "light", "brightness", "color_temp", "color", "action"]);
     const tmode = kindOf(d) === "thermostat" ? val(d, "hvac_mode") : null;
@@ -787,6 +803,11 @@
     if (t === "battery") return val(d, "battery") != null || val(d, "battery_low") != null;
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
+    if (t === "doors") return has(d, "contact") && !isWindow(d);
+    if (t === "windows") return has(d, "contact") && isWindow(d);
+    if (t === "switches") return !isLight(d) && (isPlug(d) || Object.entries(d.capabilities).some(([k, c]) =>
+      c.writable && (k === "switch" || k.startsWith("switch_")) && !/siren/i.test(k + (c.label || ""))));
+    if (t === "appliances") return ["appliance", "vacuum", "air_purifier"].includes(kindOf(d)) || has(d, "vacuum_state");
     const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && (t !== "controls" || d.capabilities[k].writable) && !(k === "co" && !coAlarm(d))
       && !(k === "occupancy" && isThermostat(d)));   // a thermostat's built-in occupancy sensor doesn't make it a security device
   }
@@ -858,17 +879,33 @@
     fog: ["foggy", "foggy"], rain: ["rainy", "rainy"], sleet: ["weather_snowy", "weather_snowy"], snow: ["weather_snowy", "weather_snowy"], storm: ["thunderstorm", "thunderstorm"] };
   const wxIcon = (kind, day = true) => (WX_ICON[kind] || WX_ICON.cloudy)[day ? 0 : 1];
   const tempC = c => c == null ? "–" : `${Math.round(toUnit(c))}°`;
-  const goTile = (go, cls, ic, value, label, sub = "") => `<button type="button" class="tile htile ${cls}" data-goto="${esc(go)}">
+  // ids: the devices behind the tile; tapping it lists them (each opens its pop-up) instead of just changing page
+  const goTile = (go, cls, ic, value, label, sub = "", ids = null) => `<button type="button" class="tile htile ${cls}" data-goto="${esc(go)}"${
+      ids?.length ? ` data-ids="${esc(ids.join(" "))}" data-list-title="${esc(String(label || "").replace(/<[^>]+>/g, ""))}"` : ""}>
       <div class="ti">${icon(ic, true)}</div><div class="tv">${value}</div><div class="tl">${esc(label)}</div>${sub ? `<div class="ts">${esc(sub)}</div>` : ""}</button>`;
 
+  function showDeviceList(title, ids, page) {
+    const devs = ids.map(id => devices.get(id)).filter(Boolean);
+    let dlg = $("#devlist");
+    if (!dlg) { document.body.insertAdjacentHTML("beforeend", `<dialog id="devlist" class="m3-dialog" aria-labelledby="devlist-title"></dialog>`); dlg = $("#devlist");
+      dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); }); }
+    dlg.innerHTML = `<h2 id="devlist-title">${esc(title)}</h2>
+      <div class="devlist">${devs.map(d => { const [ic, tone] = deviceIcon(d), st = statusOf(d), rd = readingText(d);
+        return `<button type="button" class="devlist-row" data-id="${esc(d.id)}" data-open-device><span class="avatar ${tone}">${icon(ic, !!tone)}</span>
+          <span class="ltext"><b>${esc(d.name)}</b><small>${esc([d.room, [rd, st?.[0]].filter(Boolean).join(" · ")].filter(Boolean).join(" · "))}</small></span>${icon("chevron_right")}</button>`; }).join("")
+        || `<p class="muted">Nothing to show.</p>`}</div>
+      <div class="dlg-actions">${page && TITLES[page] ? `<button type="button" class="text-btn" data-goto="${esc(page)}" data-close-list>Open ${esc(TITLES[page])}</button>` : ""}
+        <button type="button" class="text-btn" data-close-list>Close</button></div>`;
+    dlg.showModal();
+  }
   function homeTileHtml(id, list) {
     const names = a => a.map(d => d.name).slice(0, 2).join(", ") + (a.length > 2 ? ` +${a.length - 2}` : "");
     switch (id) {
       case "leaks": {
         const sensors = list.filter(d => has(d, "leak")); if (!sensors.length) return "";
         const wet = sensors.filter(d => val(d, "leak") === true);
-        return wet.length ? goTile("water", "bad", "water_damage", `${wet.length} leak${wet.length > 1 ? "s" : ""}`, names(wet), "Check now")
-          : goTile("water", "good", "water_drop", "No leaks", `${sensors.length} sensor${sensors.length > 1 ? "s" : ""} dry`);
+        return wet.length ? goTile("water", "bad", "water_damage", `${wet.length} leak${wet.length > 1 ? "s" : ""}`, names(wet), "Check now", wet.map(d => d.id))
+          : goTile("water", "good", "water_drop", "No leaks", `${sensors.length} sensor${sensors.length > 1 ? "s" : ""} dry`, "", sensors.map(d => d.id));
       }
       case "security": {
         const doors = list.filter(d => has(d, "contact") && !has(d, "lock")), locks = list.filter(d => has(d, "lock"));
@@ -876,17 +913,17 @@
         const open = doors.filter(d => val(d, "contact") === "open"), unlocked = locks.filter(d => val(d, "lock") === "unlocked");
         const bad = [...open, ...unlocked];
         return bad.length ? goTile("security", "warn", unlocked.length ? "lock_open" : "door_open", `${bad.length} not secure`,
-            [...open.map(d => d.name + " open"), ...unlocked.map(d => d.name + " unlocked")].slice(0, 2).join(" · "))
-          : goTile("security", "good", "shield_lock", "Secure", `${doors.length} closed · ${locks.length} locked`);
+            [...open.map(d => d.name + " open"), ...unlocked.map(d => d.name + " unlocked")].slice(0, 2).join(" · "), bad.map(d => d.id))
+          : goTile("security", "good", "shield_lock", "Secure", `${doors.length} closed · ${locks.length} locked`, "", [...doors, ...locks].map(d => d.id));
       }
       case "safety": {
         const det = list.filter(d => ["smoke", "heat", "gas"].some(k => has(d, k)) || coAlarm(d)), panel = list.find(d => has(d, "alarm_panel"));
         if (!det.length && !panel) return "";
         const firing = det.filter(d => ["smoke", "co", "gas", "heat"].some(k => val(d, k) === true));
-        if (firing.length || (panel && val(panel, "alarm_panel") === "triggered")) return goTile("security", "bad", "local_fire_department", "Alarm!", names(firing.length ? firing : [panel]));
+        if (firing.length || (panel && val(panel, "alarm_panel") === "triggered")) return goTile("security", "bad", "local_fire_department", "Alarm!", names(firing.length ? firing : [panel]), "", (firing.length ? firing : [panel]).map(d => d.id));
         const mode = panel ? (ALARM_LABEL[val(panel, "alarm_panel")] || val(panel, "alarm_panel")) : null;
         return goTile("security", "good", panel && val(panel, "alarm_panel") !== "disarmed" ? "shield" : "detector_smoke", mode || "All clear",
-          det.length ? `${det.length} detector${det.length > 1 ? "s" : ""} OK` : "Alarm system", mode && det.length ? "Detectors OK" : "");
+          det.length ? `${det.length} detector${det.length > 1 ? "s" : ""} OK` : "Alarm system", mode && det.length ? "Detectors OK" : "", [...det, ...(panel ? [panel] : [])].map(d => d.id));
       }
       case "power": {
         const meters = list.filter(d => (isPlug(d) || kindOf(d) === "ev_charger") && typeof val(d, "power") === "number");
@@ -965,12 +1002,16 @@
   function homeWeather(list, cfg) {
     const wx = list.find(d => kindOf(d) === "weather");
     const station = list.find(d => d.source === "ecowitt" && isOutdoor(d) && typeof val(d, "temperature") === "number")
-      || list.find(d => d.source !== "weather" && kindOf(d) !== "aqi_station" && has(d, "wind_speed") && typeof val(d, "temperature") === "number");
+      || list.find(d => d.source !== "weather" && !["aqi_station", "weather"].includes(kindOf(d)) && has(d, "wind_speed")
+        && Object.keys(d.capabilities).some(k => k.startsWith("temperature")));
     const useStation = cfg.station && station;
     if (!(cfg.weather && wx) && !useStation) return "";
     const a = wx?.attributes || {}, today = (a.daily || [])[0];
-    const curTemp = useStation ? val(station, "temperature") : val(wx, "temperature");
-    const hum = useStation && has(station, "humidity") ? val(station, "humidity") : val(wx, "humidity");
+    const outKey = (d, base) => { const ks = Object.keys(d.capabilities).filter(k => k.startsWith(base) && typeof val(d, k) === "number");
+      return ks.find(k => /outdoor|outside/i.test(k + " " + (d.capabilities[k].label || ""))) || (ks.includes(base) ? base : ks[0]); };
+    const sT = useStation ? outKey(station, "temperature") : null, sH = useStation ? outKey(station, "humidity") : null;
+    const curTemp = useStation && sT ? val(station, sT) : val(wx, "temperature");
+    const hum = useStation && sH ? val(station, sH) : val(wx, "humidity");
     const wind = useStation && has(station, "wind_speed") ? val(station, "wind_speed") : val(wx, "wind_speed");
     const windU = (useStation && has(station, "wind_speed") ? station.capabilities.wind_speed.unit : wx?.capabilities.wind_speed?.unit) || "";
     const bits = [hum != null ? `${icon("humidity_percentage")}${Math.round(hum)}%` : "", wind != null ? `${icon("air")}${n(wind)} ${esc(windU)}` : "",
@@ -984,7 +1025,7 @@
         <div class="wicon">${icon(wxIcon(a.icon, a.is_day !== false), true)}</div>
         <div class="wtemp">${curTemp == null ? "–" : `${temp(curTemp)}<small>°${unit}</small>`}</div>
         <div class="wdesc"><b>${esc(wx ? val(wx, "status_text") || "" : "Outside")}</b>
-          <span>${wx && val(wx, "feels_like") != null ? `Feels like ${tempC(val(wx, "feels_like"))}` : ""}${today ? ` · <span class="nw">H\u00a0${tempC(today.hi)} L\u00a0${tempC(today.lo)}</span>` : ""}</span>
+          <span>${wx && val(wx, "feels_like") != null ? `Feels like ${tempC(val(wx, "feels_like"))}` : ""}${today ? `${wx && val(wx, "feels_like") != null ? " · " : ""}<span class="nw">H\u00a0${tempC(today.hi)} L\u00a0${tempC(today.lo)}</span>` : ""}</span>
           <span class="wplace">${esc(a.place || (useStation ? station.room || "" : ""))}</span></div>
       </div>
       ${bits.length ? `<div class="wbits">${bits.map(b => `<span>${b}</span>`).join("")}</div>` : ""}
@@ -993,12 +1034,22 @@
     </section>`;
   }
   function homeClimate(list) {
-    const inside = list.filter(d => typeof val(d, "temperature") === "number" && !isOutdoor(d) && !isUps(d) && !["weather", "aqi_station", "pool"].includes(kindOf(d)));
+    // living-space sensors only: not outdoor/pool/weather/UPS/cars, and not fridges, freezers, ovens or water heaters
+    // (anything outside 5–40 °C isn't the temperature of a room)
+    const inside = list.filter(d => typeof val(d, "temperature") === "number" && !isOutdoor(d) && !isUps(d)
+      && !["weather", "aqi_station", "pool", "vehicle", "network"].includes(kindOf(d))
+      && val(d, "temperature") >= 5 && val(d, "temperature") <= 40 && !/fridge|freezer|refrigerator|oven|water heater|attic|pool|spa|hot tub/i.test(`${d.name} ${d.room || ""}`));
     if (!inside.length) return "";
-    const ts = inside.map(d => val(d, "temperature")), avg = ts.reduce((a, b) => a + b, 0) / ts.length;
-    const hums = inside.map(d => val(d, "humidity")).filter(v => typeof v === "number");
-    const rooms = {}; inside.forEach(d => { (rooms[d.room || "Other"] ||= []).push(val(d, "temperature")); });
-    const rows = Object.entries(rooms).map(([r, v]) => [r, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    // Thermostats and their room sensors (ecobee and others) and anything named "indoor"/"inside" are the house's own
+    // readings: when there are any, they make the big number and range, and list first
+    const isIndoor = d => isThermostat(d) || d.source === "ecobee" || /\b(indoor|inside|thermostat)\b/i.test(`${d.name} ${(d.attributes?.ha_entities || []).join(" ")}`);
+    const pref = inside.filter(isIndoor), base = pref.length ? pref : inside;
+    const ts = base.map(d => val(d, "temperature")), avg = ts.reduce((a, b) => a + b, 0) / ts.length;
+    const hums = base.map(d => val(d, "humidity")).filter(v => typeof v === "number");
+    const rooms = {}, prefRoom = new Set(pref.map(d => d.room || "Other"));
+    inside.forEach(d => { (rooms[d.room || "Other"] ||= []).push(val(d, "temperature")); });
+    const rows = Object.entries(rooms).map(([r, v]) => [r, v.reduce((a, b) => a + b, 0) / v.length])
+      .sort((a, b) => prefRoom.has(b[0]) - prefRoom.has(a[0]) || b[1] - a[1]).slice(0, 5)
       .map(([r, t]) => `<li><span>${esc(r)}</span><b>${temp(t)}°</b></li>`).join("");
     return `<section class="hcardx climate" data-goto="climate" tabindex="0" role="button" aria-label="Inside: open Climate">
       <div class="hcx-head">${icon("home")}<span>Inside</span></div>
@@ -1034,6 +1085,8 @@
   function applyNavPrefs(initial = false) {
     const cfg = homeCfg(), hidden = new Set(cfg.hidden_pages || []);
     $$("#nav [data-f], #more [data-f]").forEach(b => { if (!["all", "settings"].includes(b.dataset.f)) b.hidden = hidden.has(b.dataset.f); });
+    // Appliances: Home Assistant edition only (appliances come from HA's washer/dryer/fridge/oven… integrations)
+    $$('#nav [data-f="appliances"], #more [data-f="appliances"]').forEach(b => { b.hidden = b.hidden || edition !== "hacs"; });
     if (initial && !startApplied) {
       startApplied = true;
       if (cfg.start && cfg.start !== view && !hidden.has(cfg.start)) go(cfg.start);
@@ -1052,11 +1105,11 @@
       ${admin ? `<button type="button" class="text-btn home-custom" data-goto-setting="home">${icon("dashboard_customize")}Customize</button>` : ""}
     </div>`;
   }
-  function doorTiles(list) {
+  function doorTiles(list, page = "doors") {
     const c = list.filter(d => has(d, "contact"));
     const open = c.filter(d => val(d, "contact") === "open"), closed = c.length - open.length;
-    return tile(open.length ? "warn" : "good", open.length ? "door_open" : "door_front", `${open.length} open`,
-      open.length ? open.map(d => d.name).slice(0, 3).join(", ") : "Everything is closed", true) +
+    return goTile(page, open.length ? "warn" : "good", open.length ? "door_open" : "door_front", `${open.length} open`,
+      open.length ? open.map(d => d.name).slice(0, 3).join(", ") : "Everything is closed", "", open.map(d => d.id)) +
       tile("", "sensor_door", `${closed} closed`, `${c.length} contact sensor${c.length === 1 ? "" : "s"}`) +
       tile("", "battery_alert", `${c.filter(batteryLow).length}`, "need new batteries");
   }
@@ -1113,8 +1166,7 @@
     $("#summary").innerHTML = tile(on.length ? "primary" : "", "lightbulb", `${on.length}<small> on</small>`,
       on.length ? on.map(d => d.name).slice(0, 3).join(", ") + (on.length > 3 ? ` +${on.length - 3}` : "") : "Everything is off", !!on.length) +
       tile("", "home_iot_device", `${lights.length}`, `lights · ${groups.length} room${groups.length === 1 ? "" : "s"} & zones`);
-    $("#alerts").innerHTML = lights.length ? `<div class="light-tools"><button class="tonal-btn" data-all-lights="false">${icon("power_settings_new")}All off</button>
-      <button class="tonal-btn" data-all-lights="true">${icon("lightbulb")}All on</button></div>` : "";
+    $("#alerts").innerHTML = "";
     if (!lights.length && !groups.length) {
       $("#rooms").innerHTML = `<div class="empty-state">${icon("lightbulb")}<h3>No lights yet</h3><p>Pair your Philips Hue bridge under Settings → Philips Hue. Zigbee2MQTT bulbs show up automatically through MQTT.</p>
         <button class="tonal-btn" data-goto="settings">${icon("settings")}Open Settings</button></div>`; return;
@@ -1130,7 +1182,7 @@
   let devSort = JSON.parse(load("devSort", '{"key":"room","dir":1}'));
   let devSel = { source: "", type: "", room: "" };
   const TYPE_NAMES = { ...Object.fromEntries(TABS.map(([t, l]) => [t, l])), battery: "Batteries", power: "UPS", none: "In no tab" };
-  const primaryType = d => { const t = tabsOf(d); return t.length ? TYPE_NAMES[t[0]] : isUps(d) ? "UPS" : "No tab"; };
+  const primaryType = d => (TYPE_INFO[deviceType(d)] || TYPE_INFO.other)[1];
   const DEV_SORTS = {
     name: ["Name", d => d.name.toLowerCase(), null],
     room: ["Room", d => `${d.room ? 0 : 1}|${(d.room || "").toLowerCase()}|${d.name.toLowerCase()}`, d => d.room || "No room"],
@@ -1188,7 +1240,7 @@
           <div class="dcell dname"><span class="avatar ${tone}">${icon(ic, !!tone)}</span><div><b>${esc(d.name)}</b><small>${esc([srcLabel(d), d.model].filter(Boolean).join(" · "))}</small></div>
             <button class="icon-btn" data-edit title="Rename, move or pin" aria-label="Edit ${esc(d.name)}">${icon("edit")}</button></div>
           <div class="dcell droom ${d.room ? "" : "muted"}">${esc(d.room || "No room")}</div>
-          <div class="dcell dtabs">${TABS.map(([t, l, ti]) => `<button type="button" class="tabchip ${tabs.includes(t) ? "on" : ""} ${!custom ? "auto" : auto.includes(t) !== tabs.includes(t) ? "changed" : ""}"
+          <div class="dcell dtabs">${TABS.filter(([t]) => t !== "appliances" || edition === "hacs").map(([t, l, ti]) => `<button type="button" class="tabchip ${tabs.includes(t) ? "on" : ""} ${!custom ? "auto" : auto.includes(t) !== tabs.includes(t) ? "changed" : ""}"
               data-tab="${t}" aria-pressed="${tabs.includes(t)}" title="${tabs.includes(t) ? "Remove from" : "Add to"} ${l}">${icon(ti, tabs.includes(t))}${l}</button>`).join("")}
             ${custom ? `<button type="button" class="text-btn reset-tabs" data-reset-tabs title="Back to automatic: ${esc(auto.map(t => TABS.find(x => x[0] === t)[1]).join(", ") || "no tabs")}">${icon("restart_alt")}Custom · reset</button>`
               : `<span class="autotag">Auto</span>`}</div>
@@ -1457,8 +1509,8 @@
 
   // ---- Home page & menu customization (saved on the server, same on every screen) ----
   let homeDraft = null;
-  const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["doors", "Doors"],
-    ["security", "Security"], ["controls", "Controls"], ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
+  const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["doors", "Doors"], ["windows", "Windows"],
+    ["security", "Security"], ["controls", "Controls"], ["switches", "Switches"], ...(edition === "hacs" ? [["appliances", "Appliances"]] : []), ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
   function homeSummary() {
     const c = homeCfg(), on = ["weather", "climate", "aqi_outdoor", "aqi_indoor"].filter(k => c[k]).length;
     const hidden = (c.hidden_pages || []).length;
@@ -1494,23 +1546,27 @@
       <div class="set-actions"><button type="button" class="text-btn" data-hreset>${icon("restart_alt")}Reset to defaults</button><span style="flex:1"></span>
         <button type="button" class="filled-btn" data-hsave>${icon("save")}Save</button></div>`;
   }
+  // Home page & menu: every change is saved right away (no Save needed), so it applies at once on every screen
+  function homeSave(note) {
+    if (!homeDraft) return;
+    homeDraft.title = ($("#htitle")?.value ?? homeDraft.title ?? "").trim(); homeDraft.start = $("#hstart")?.value || homeDraft.start || "all";
+    clearTimeout(homeSave.t);
+    homeSave.t = setTimeout(() => api("/api/layout", { method: "PUT", body: JSON.stringify({ home: homeDraft }) })
+      .then(l => { layout = l; applyNavPrefs(); if (note) snack(note); }).catch(e => snack(`Couldn't save: ${e.message}`)), 250);
+  }
   function homeSettingsClick(t) {
     if (!homeDraft) return false;
-    const f = t.closest("[data-hflag]"); if (f) { const k = f.dataset.hflag; homeDraft[k] = homeDraft[k] === false; renderSettings(); return true; }
+    const f = t.closest("[data-hflag]"); if (f) { const k = f.dataset.hflag; homeDraft[k] = homeDraft[k] === false; renderSettings(); homeSave(); return true; }
     const tl = t.closest("[data-htile]"); if (tl) { const id = tl.dataset.htile; const a = homeDraft.tiles = [...(homeDraft.tiles || [])];
-      a.includes(id) ? a.splice(a.indexOf(id), 1) : a.push(id); renderSettings(); return true; }
+      a.includes(id) ? a.splice(a.indexOf(id), 1) : a.push(id); renderSettings(); homeSave(); return true; }
     const mv = t.closest("[data-hmove]"); if (mv) { const [id, d] = mv.dataset.hmove.split(":"); const a = homeDraft.tiles = [...homeDraft.tiles];
       const i = a.indexOf(id), j = i + Number(d); if (i >= 0 && j >= 0 && j < a.length) { [a[i], a[j]] = [a[j], a[i]]; } renderSettings();
-      $(`[data-hmove="${id}:${d}"]`)?.focus(); return true; }
-    if (t.closest("[data-hreset]")) { homeDraft = JSON.parse(JSON.stringify(HOME_DEFAULT)); renderSettings(); snack("Defaults restored. Save to keep them."); return true; }
-    if (t.closest("[data-hsave]")) {
-      homeDraft.title = ($("#htitle")?.value || "").trim(); homeDraft.start = $("#hstart")?.value || "all";
-      api("/api/layout", { method: "PUT", body: JSON.stringify({ home: homeDraft }) })
-        .then(l => { layout = l; applyNavPrefs(); snack("Home page saved"); }).catch(e => snack(e.message));
-      return true;
-    }
+      $(`[data-hmove="${id}:${d}"]`)?.focus(); homeSave(); return true; }
+    if (t.closest("[data-hreset]")) { homeDraft = JSON.parse(JSON.stringify(HOME_DEFAULT)); renderSettings(); homeSave("Defaults restored"); return true; }
+    if (t.closest("[data-hsave]")) { homeSave("Home page saved"); return true; }
     return false;
   }
+  document.addEventListener("change", e => { if (homeDraft && (e.target.id === "htitle" || e.target.id === "hstart")) homeSave("Saved"); });
 
   // ---- High availability (beta, app/ha.py): live status card, "Fail over now", banner on a standby ----
   const ha = { data: null, timer: null };
@@ -1611,6 +1667,7 @@
     </section>`;
   }
   function haPairRedraw() { const el = $("#ha-pair"), sec = settingsData?.sections.find(x => x.id === "ha"); if (el && sec) { const open = el.querySelector("details")?.open; el.outerHTML = haPairHtml(sec); if (open) $("#ha-pair details").open = true; } }
+  document.addEventListener("input", e => { if (e.target.id === "pagesearch-input") { pageQuery = e.target.value; clearTimeout(renderSearch.t); renderSearch.t = setTimeout(schedule, 120); } });
   document.addEventListener("input", e => { const i = e.target.closest?.("[data-pk]"); if (!i) return; haPair[i.dataset.pk] = i.value; if (i.dataset.pk === "my") haPair.myEdited = true; });
   document.addEventListener("change", async e => {
     const i = e.target.closest?.('[data-pk="backup"]'); if (!i || !i.value.trim() || haPair.myEdited) return;
@@ -1846,6 +1903,21 @@
   }
 
   // ---------- main render ----------
+  // ---------- search on every device page ----------
+  let pageQuery = "";
+  const searchable = () => !["settings", "devices", "automations"].includes(view) && !pluginPages[view];
+  function searchFilter(list) {
+    const q = searchable() ? pageQuery.trim().toLowerCase() : "";
+    if (!q) return list;
+    const words = q.split(/\s+/);
+    return list.filter(d => { const hay = `${d.name} ${d.room || ""} ${d.model || ""} ${srcLabel(d)} ${readingText(d)} ${(statusOf(d) || [""])[0]}`.toLowerCase();
+      return words.every(w => hay.includes(w)); });
+  }
+  function renderSearch() {
+    const box = $("#pagesearch"); if (!box) return;
+    box.hidden = !searchable();
+    const i = $("#pagesearch input"); if (i && document.activeElement !== i && i.value !== pageQuery) i.value = pageQuery;
+  }
   function render() {
     destroySortables();
     renderViewNav();
@@ -1854,7 +1926,8 @@
     renderHeader();
     renderEditBar();
     renderBadges();
-    const list = visible();
+    const list = searchFilter(visible());
+    renderSearch();
     $("#viewmode").style.display = PAGES.has(view) ? "none" : "";
     document.body.dataset.view = view;
     // leaving a plugin page (Automations…): clear its flag first, so coming back re-renders it
@@ -1871,10 +1944,11 @@
     if (view === "air") return airPage(list);
     if (view === "power") return powerPage(list);
     if (view === "lights") return lightsPage(list);
-    $("#summary").innerHTML = view === "all" && list.length ? homeTiles(list) : view === "doors" ? doorTiles(list) : "";
+    $("#summary").innerHTML = view === "all" && list.length ? homeTiles(list) : view === "doors" ? doorTiles(list.filter(d => !isWindow(d)))
+      : view === "windows" ? doorTiles(list.filter(isWindow), "windows") : "";
     renderChips(list);
     const shown = list.filter(matches);
-    if (view === "doors") shown.sort((a, b) => (val(b, "contact") === "open") - (val(a, "contact") === "open"));
+    if (view === "doors" || view === "windows") shown.sort((a, b) => (val(b, "contact") === "open") - (val(a, "contact") === "open"));
     if (!shown.length) { $("#rooms").innerHTML = customView() ? `<div class="empty-state">${icon(customView().icon)}<h3>Nothing matches this view yet</h3><p>Pick rooms, types, brands or devices for it.</p><button class="tonal-btn" data-edit-view>${icon("tune")}Edit view</button></div>`
       : `<p class="empty">${list.length ? "Nothing in this view yet." : "No devices yet. Add your accounts in Settings."}</p>`; return; }
     if (mode === "table") { $("#rooms").innerHTML = tableView(shown); return; }
@@ -1943,6 +2017,7 @@
     homeDraft.hidden_pages = [...hid]; homeDraft.title = ($("#htitle")?.value || "").trim(); renderSettings();
   });
   function go(v) {
+    if (v !== view) { pageQuery = ""; const i = $("#pagesearch-input"); if (i) i.value = ""; }
     view = v; store("filter", v); document.body.classList.remove("quiet");
     if (v === "settings") { settingsSub = null; homeDraft = null; $("#rooms").innerHTML = ""; loadSettings(); }
     if (v === "power") loadPower();
@@ -2422,6 +2497,8 @@
       const capName = b.dataset.cmd, value = JSON.parse(b.dataset.val);
       if (b.closest(".segmented") && b.classList.contains("on")) return;   // already in that state
       const quiet = capName === "action" && !["test", "siren", "mute"].includes(value);
+      const sirenSw = /siren/i.test(capName) || /siren/i.test(d.capabilities[capName]?.label || "");
+      if (sirenSw && value === true && !(await confirmAction(`Sound siren on ${d.name}?`, "The siren sounds until you turn it off (or the device stops it).", "campaign", "Sound siren"))) return;
       if (!quiet && ["lock", "valve", "action", "alarm_panel"].includes(capName)) {
         const ic = { lock: value === "lock" ? "lock" : "lock_open", valve: "valve", action: value === "siren" ? "campaign" : "detector_smoke", alarm_panel: "shield" }[capName];
         const msg = capName === "action" ? (value === "siren" ? "The siren will sound for 30 seconds." : "The alarm will sound briefly.") : "This controls a physical device in your home.";
@@ -2462,6 +2539,9 @@
     }
     const at = t.closest("[data-alerts-toggle]"); if (at) { alertsOpen = alertsOpen === at.dataset.alertsToggle ? null : at.dataset.alertsToggle; return schedule(); }
     if (t.closest("[data-open-device]") || (t.closest(".card .name") && !editing())) return openDevicePanel(t.closest("[data-id]").dataset.id);
+    const cardHit = t.closest(".card[data-id], .dtable tbody tr[data-id], .batt-row[data-id]");
+    if (cardHit && !editing() && !t.closest("button, a, input, select, textarea, label, [role=switch], [role=slider], .segmented, .slider, .meta .more-n, svg.spark")
+        && devices.has(cardHit.dataset.id)) return openDevicePanel(cardHit.dataset.id);
     const hb = t.closest("[data-hist]"); if (hb) { const owner = hb.closest("[data-id]"); if (owner?.dataset.id && devices.has(owner.dataset.id)) return openDevicePanel(owner.dataset.id, "history", hb.dataset.hist); return; }
     const pt = t.closest("[data-ptab]");
     if (pt) { panelTab = pt.dataset.ptab; dh.focus = null; if (panelTab === "history" && (!dh.data || dh.id !== panelId)) loadDevHistory(panelId, dh.range);
@@ -2521,6 +2601,10 @@
     const nav = t.closest("[data-f]");
     if (nav) { if (nav.closest("#more")) $("#more").close(); go(nav.dataset.f); return; }
     if (t.closest("[data-open=more]")) { hydrateIcons($("#more")); $("#more").showModal(); return; }
+    if (t.closest("#devlist") && (t.closest("[data-close-list]") || t.closest("[data-open-device]"))) $("#devlist")?.close();
+    const lt = t.closest("[data-ids]");
+    if (t.closest("[data-close-list]") && !t.closest("[data-goto]")) return;
+    if (lt && lt.dataset.ids) return showDeviceList(lt.dataset.listTitle || "Devices", lt.dataset.ids.split(" "), lt.dataset.goto);
     if (t.closest("[data-goto]")) return go(t.closest("[data-goto]").dataset.goto);
     const gs = t.closest("[data-goto-setting]"); if (gs) { go("settings"); settingsSub = gs.dataset.gotoSetting; return; }
     if (t.closest("[data-ha-failover]")) return haFailover();
@@ -2707,6 +2791,7 @@
     loadHistInfo();      // after /api/me: a session that must change its password first can't read it yet
     fetch("/api/config", { headers: authHdr() }).then(r => r.json()).then(c => {
       if (c.ui?.title) { appTitle = c.ui.title; document.title = appTitle; }
+      if (c.edition && c.edition !== edition) { edition = c.edition; applyNavPrefs(); }
       const tf = c.time_format || c.time?.time_format, tz = c.timezone || c.time?.timezone;
       timeCfg = { hour12: tf === "12h" ? true : tf === "24h" ? false : undefined, timeZone: tz || undefined };
       try { new Intl.DateTimeFormat([], timeOpts()); } catch { timeCfg.timeZone = undefined; }   // ignore an invalid zone

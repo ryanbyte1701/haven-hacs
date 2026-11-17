@@ -405,7 +405,8 @@ async def health(request: Request):
 @app.get("/api/config")
 async def ui_config(request: Request):
     t = manager.cfg.get("time") or {}
-    out = {"ui": manager.cfg.get("ui", {}), "auth": True,
+    from . import edition as edition_mod
+    out = {"ui": manager.cfg.get("ui", {}), "auth": True, "edition": "hacs" if edition_mod.HACS else "og",
            "time_format": t.get("time_format") or "12h",
            "timezone": time_service.status().get("timezone") if time_service else None}
     if is_admin(request):                  # integration status lines are configuration: admins only

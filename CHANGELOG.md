@@ -2,6 +2,26 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-17 (v4)
+
+- New pages: **Windows** (window sensors move off Doors), **Switches** (every power switch and smart plug) and,
+  in the Home Assistant edition, **Appliances** (washers, dryers, fridges, ovens, water heaters, vacuums…).
+- **Search** box on every device page.
+- New groups in *Group by Type*: **Cars** and **Network**. Cars show charge or fuel and range; odometer, range and
+  fuel level are recognised.
+- Tapping anywhere on a card opens its pop-up (not just the name). Home and Doors tiles such as "5 open" list the
+  devices behind them; tap one to open it.
+- Home page & menu settings save as soon as you change them (no Save needed), so they apply straight away.
+- The Inside card uses thermostats and their room sensors (and anything named indoor) first, and ignores fridges,
+  freezers, ovens, attics and other non-room temperatures.
+- The weather card no longer mistakes the forecast for your weather station, and uses the station's outdoor
+  temperature and humidity.
+- Lights page: the All on / All off buttons are gone.
+- Phones: "Good evening" and the date are no longer cut off by the header buttons.
+- Home Assistant devices: a camera's Siren, Motion detection and other extra switches are their own controls (not
+  "Power"), and turning a siren on asks first; appliance and car openings (a water heater's shutoff valve, car
+  doors) are no longer treated as house doors.
+
 ## 2026-11-17 (v3)
 
 - **Settings → Diagnostics**: download an anonymous tech dump for troubleshooting (every device's type, model,

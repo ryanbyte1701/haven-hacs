@@ -26,8 +26,11 @@
     <button data-f="lights" data-phone><span class="ind" data-icon="lightbulb"><b class="badge info" id="badge-lights"></b></span><span class="lbl">Lights</span></button>
     <button data-f="water"><span class="ind" data-icon="water_drop"></span><span class="lbl">Water</span></button>
     <button data-f="doors" data-phone><span class="ind" data-icon="sensor_door"><b class="badge warn" id="badge-doors"></b></span><span class="lbl">Doors</span></button>
+    <button data-f="windows"><span class="ind" data-icon="window"></span><span class="lbl">Windows</span></button>
     <button data-f="security"><span class="ind" data-icon="shield_lock"></span><span class="lbl">Security</span></button>
     <button data-f="controls"><span class="ind" data-icon="tune"></span><span class="lbl">Controls</span></button>
+    <button data-f="switches"><span class="ind" data-icon="toggle_on"></span><span class="lbl">Switches</span></button>
+    <button data-f="appliances" hidden><span class="ind" data-icon="kitchen"></span><span class="lbl">Appliances</span></button>
     <button data-f="battery"><span class="ind" data-icon="battery_full"><b class="badge" id="badge-battery"></b></span><span class="lbl">Batteries</span></button>
     <button data-f="power"><span class="ind" data-icon="power"><b class="badge" id="badge-power"></b></span><span class="lbl">Power</span></button>
     <button data-f="devices"><span class="ind" data-icon="devices"></span><span class="lbl">Devices</span></button>
@@ -55,6 +58,7 @@
     </div>
   </header>
 
+  <div class="pagesearch" id="pagesearch" hidden><label class="search"><span data-icon="search"></span><input type="search" id="pagesearch-input" placeholder="Search this page" autocomplete="off" aria-label="Search devices on this page"></label></div>
   <section class="summary" id="summary"></section>
   <section class="banners" id="alerts"></section>
   <main id="rooms" tabindex="-1"></main>
@@ -70,8 +74,11 @@
       <button value="air" data-f="air"><span data-icon="air"></span>Air quality</button>
       <button value="battery" data-f="battery"><span data-icon="battery_full"></span>Batteries</button>
       <button value="water" data-f="water"><span data-icon="water_drop"></span>Water</button>
+      <button value="windows" data-f="windows"><span data-icon="window"></span>Windows</button>
       <button value="security" data-f="security"><span data-icon="shield_lock"></span>Security</button>
       <button value="controls" data-f="controls"><span data-icon="tune"></span>Controls</button>
+      <button value="switches" data-f="switches"><span data-icon="toggle_on"></span>Switches</button>
+      <button value="appliances" data-f="appliances" hidden><span data-icon="kitchen"></span>Appliances</button>
       <button value="power" data-f="power"><span data-icon="power"></span>Power</button>
       <button value="devices" data-f="devices"><span data-icon="devices"></span>Devices</button>
       <div id="more-views"></div>

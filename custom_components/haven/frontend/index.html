@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111418">
 <title>Haven</title>
-<link rel="icon" href="/haven_static/favicon.svg?v=2026.11.17.3" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/haven_static/apple-touch-icon.png?v=2026.11.17.3">
+<link rel="icon" href="/haven_static/favicon.svg?v=2026.11.17.4" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/haven_static/apple-touch-icon.png?v=2026.11.17.4">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'">
-<script src="/haven_panel/hacs-shim.js?v=2026.11.17.3"></script>
-<script src="/haven_static/theme-init.js?v=2026.11.17.3"></script>
-<link rel="stylesheet" href="/haven_static/theme.css?v=2026.11.17.3">
-<link rel="stylesheet" href="/haven_static/style.css?v=2026.11.17.3">
-<link rel="stylesheet" href="/haven_static/automations.css?v=2026.11.17.3">
-<link rel="stylesheet" href="/haven_static/accounts.css?v=2026.11.17.3">
-<script src="/haven_static/icons.js?v=2026.11.17.3"></script>
-<link rel="stylesheet" href="/haven_panel/hacs.css?v=2026.11.17.3">
+<script src="/haven_panel/hacs-shim.js?v=2026.11.17.4"></script>
+<script src="/haven_static/theme-init.js?v=2026.11.17.4"></script>
+<link rel="stylesheet" href="/haven_static/theme.css?v=2026.11.17.4">
+<link rel="stylesheet" href="/haven_static/style.css?v=2026.11.17.4">
+<link rel="stylesheet" href="/haven_static/automations.css?v=2026.11.17.4">
+<link rel="stylesheet" href="/haven_static/accounts.css?v=2026.11.17.4">
+<script src="/haven_static/icons.js?v=2026.11.17.4"></script>
+<link rel="stylesheet" href="/haven_panel/hacs.css?v=2026.11.17.4">
 </head>
 <body>
 <a class="skip-link" href="#rooms">Skip to content</a>
@@ -28,8 +28,11 @@
     <button data-f="lights" data-phone><span class="ind" data-icon="lightbulb"><b class="badge info" id="badge-lights"></b></span><span class="lbl">Lights</span></button>
     <button data-f="water"><span class="ind" data-icon="water_drop"></span><span class="lbl">Water</span></button>
     <button data-f="doors" data-phone><span class="ind" data-icon="sensor_door"><b class="badge warn" id="badge-doors"></b></span><span class="lbl">Doors</span></button>
+    <button data-f="windows"><span class="ind" data-icon="window"></span><span class="lbl">Windows</span></button>
     <button data-f="security"><span class="ind" data-icon="shield_lock"></span><span class="lbl">Security</span></button>
     <button data-f="controls"><span class="ind" data-icon="tune"></span><span class="lbl">Controls</span></button>
+    <button data-f="switches"><span class="ind" data-icon="toggle_on"></span><span class="lbl">Switches</span></button>
+    <button data-f="appliances" hidden><span class="ind" data-icon="kitchen"></span><span class="lbl">Appliances</span></button>
     <button data-f="battery"><span class="ind" data-icon="battery_full"><b class="badge" id="badge-battery"></b></span><span class="lbl">Batteries</span></button>
     <button data-f="power"><span class="ind" data-icon="power"><b class="badge" id="badge-power"></b></span><span class="lbl">Power</span></button>
     <button data-f="devices"><span class="ind" data-icon="devices"></span><span class="lbl">Devices</span></button>
@@ -57,6 +60,7 @@
     </div>
   </header>
 
+  <div class="pagesearch" id="pagesearch" hidden><label class="search"><span data-icon="search"></span><input type="search" id="pagesearch-input" placeholder="Search this page" autocomplete="off" aria-label="Search devices on this page"></label></div>
   <section class="summary" id="summary"></section>
   <section class="banners" id="alerts"></section>
   <main id="rooms" tabindex="-1"></main>
@@ -72,8 +76,11 @@
       <button value="air" data-f="air"><span data-icon="air"></span>Air quality</button>
       <button value="battery" data-f="battery"><span data-icon="battery_full"></span>Batteries</button>
       <button value="water" data-f="water"><span data-icon="water_drop"></span>Water</button>
+      <button value="windows" data-f="windows"><span data-icon="window"></span>Windows</button>
       <button value="security" data-f="security"><span data-icon="shield_lock"></span>Security</button>
       <button value="controls" data-f="controls"><span data-icon="tune"></span>Controls</button>
+      <button value="switches" data-f="switches"><span data-icon="toggle_on"></span>Switches</button>
+      <button value="appliances" data-f="appliances" hidden><span data-icon="kitchen"></span>Appliances</button>
       <button value="power" data-f="power"><span data-icon="power"></span>Power</button>
       <button value="devices" data-f="devices"><span data-icon="devices"></span>Devices</button>
       <div id="more-views"></div>
@@ -147,9 +154,9 @@
     <div class="dlg-actions"><button class="text-btn" value="cancel" formnovalidate>Cancel</button><button class="text-btn" id="login-go" value="go">Continue</button></div>
   </form>
 </dialog>
-<script src="/haven_static/sortable.min.js?v=2026.11.17.3"></script>
-<script src="/haven_static/accounts.js?v=2026.11.17.3"></script>
-<script src="/haven_static/app.js?v=2026.11.17.3"></script>
-<script src="/haven_static/automations.js?v=2026.11.17.3"></script>
+<script src="/haven_static/sortable.min.js?v=2026.11.17.4"></script>
+<script src="/haven_static/accounts.js?v=2026.11.17.4"></script>
+<script src="/haven_static/app.js?v=2026.11.17.4"></script>
+<script src="/haven_static/automations.js?v=2026.11.17.4"></script>
 </body>
 </html>
