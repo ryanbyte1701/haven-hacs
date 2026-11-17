@@ -382,7 +382,7 @@ PUBLIC_API = {"/api/health", "/api/auth/state", "/api/auth/login", "/api/auth/gu
 PUBLIC_PREFIX = ("/api/ha/peer/",)          # HA peers authenticate with their own shared secret (app/ha.py)
 SELF_SERVICE = {("POST", "/api/auth/logout"), ("GET", "/api/me"), ("POST", "/api/me/password")}
 # config & secrets: never for monitors (and not for regular users, who can't change settings either)
-CONFIG_PATHS = ("/api/settings", "/api/automations", "/api/users", "/api/ha", "/api/ecowitt", "/api/aqara",
+CONFIG_PATHS = ("/api/settings", "/api/automations", "/api/users", "/api/ha", "/api/ecowitt", "/api/aqara", "/api/diagnostics",
                 "/api/hue", "/api/auth/guest_view")
 READ_OK = {"/api/ha/status"}
 USER_READ = ("/api/automations",)          # regular users may look at automations (not change them)

@@ -1427,7 +1427,8 @@
       ${group("Dashboard", "", row("home", "dashboard_customize", "Home page & menu", homeSummary()) + row("appearance", "palette", "Appearance", appearanceSummary()) +
         (() => { const t = settingsData.sections.find(s => s.id === "time"); return t ? row("time", t.icon, t.label, ...secStatus(t)) : ""; })() +
         (hist ? row("history", hist.icon, hist.label, ...secStatus(hist)) : "") + (demo ? row("demo", demo.icon, demo.label, ...secStatus(demo)) : ""))}
-      ${(() => { const sys = ["backup", "ha"].map(id => settingsData.sections.find(s => s.id === id)).filter(Boolean); return sys.length ? group("System", "", sys.map(h => row(h.id, h.icon, h.label, ...secStatus(h))).join("")) : ""; })()}
+      ${(() => { const sys = ["backup", "ha"].map(id => settingsData.sections.find(s => s.id === id)).filter(Boolean);
+        return group("System", "", sys.map(h => row(h.id, h.icon, h.label, ...secStatus(h))).join("") + row("diagnostics", "bug_report", "Diagnostics", "Anonymous tech dump for troubleshooting")); })()}
       ${group("Security", "", row("users", "manage_accounts", "Users & access", "Accounts, roles, viewing without signing in") +
         row("account", "person", "Your account", `${me.user || "admin"} · Admin`))}
       <p class="muted small lfoot">Accounts are saved on the server in <code>${esc(settingsData.file)}</code>. Passwords are never sent back to the browser.</p>
@@ -1673,6 +1674,22 @@
           <div class="frow"><span>Layout</span>${seg("layout-seg", [["cards", "Cards", "grid_view"], ["table", "Table", "table_rows"]], mode, "layout")}</div>
           <div class="frow"><span>Group by<small class="muted">for pages you haven't set yet</small></span>${seg("groupby-seg", [["room", "Room", "door_front"], ["type", "Type", "category"]], load("groupByDefault", "room"), "gbdefault")}</div>
         </section>`;
+    } else if (settingsSub === "diagnostics") {
+      $("#rooms").innerHTML = `<div class="settings-wrap detail">${back}
+        <div class="dhead"><span class="avatar big">${icon("bug_report")}</span><div><h2>Diagnostics</h2><small class="lstat info"><i></i><span>Anonymous tech dump</span></small></div></div>
+        <section class="set-card diag-card">
+          <p>A file to send when something doesn't work right. It has every device's type, make and model, integration,
+            what it reports (readings, states, units, ranges, which ones you can control, how long ago each was updated),
+            online and battery state, each integration's status, which settings are filled in, the history storage and
+            recent warnings.</p>
+          <p class="muted small">Anonymous: device and room names become "Thermostat 1", "Room A"…; ids are scrambled; IP and MAC
+            addresses, e-mail addresses, host names, tokens and passwords are removed; settings values are never included.
+            Open the file to check before you share it.</p>
+          <div id="diag-sum" class="muted small"></div>
+          <div class="set-actions"><button type="button" class="tonal-btn" data-diag-copy>${icon("content_copy")}Copy summary</button>
+            <span style="flex:1"></span><button type="button" class="filled-btn" data-diag-dl>${icon("download")}Download</button></div>
+        </section></div>`;
+      return;
     } else if (["account", "users", "security"].includes(settingsSub)) {   // accounts.js draws these
       const pg = settingsSub === "account" || !isAdmin() ? "account" : "users";
       $("#rooms").innerHTML = `<div class="settings-wrap detail acc-page" data-acc="${pg}">${isAdmin() ? back : ""}<div class="acc-body"></div></div>`;
@@ -2420,6 +2437,29 @@
       return;
     }
     if (t.closest("[data-snapshot]")) return showSnapshot(t.closest("[data-id]").dataset.id);
+    if (t.closest("[data-diag-dl]") || t.closest("[data-diag-copy]")) {
+      const copy = !!t.closest("[data-diag-copy]"), b = t.closest("button"); b.dataset.busy = "1";
+      try {
+        const r = await fetch("/api/diagnostics", { headers: authHdr() });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+        const data = await r.json(), text = JSON.stringify(data, null, 2);
+        const s = data.summary || {}, sumText = `Haven ${data.haven?.edition === "og" ? "OG" : "for Home Assistant"}${data.haven?.version ? " " + data.haven.version : ""} · ${s.devices} devices (${s.offline} offline) · ` +
+          Object.entries(s.by_integration || {}).map(([k, v]) => `${k} ${v}`).join(", ");
+        const el = $("#diag-sum"); if (el) el.textContent = sumText;
+        if (copy) {
+          const lines = [sumText, "Integrations: " + Object.entries(data.integrations || {}).map(([k, v]) => `${k}: ${v}`).join("; "),
+            ...((data.recent_warnings || []).slice(-10).map(w => `${w.level} ${w.logger}: ${w.message}`))];
+          await navigator.clipboard.writeText(lines.join("\n")); snack("Summary copied");
+        } else {
+          const a = document.createElement("a"), url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+          a.href = url; a.download = `haven-diagnostics-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}.json`;
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+          snack("Diagnostics downloaded");
+        }
+      } catch (err) { snack(`Couldn't create diagnostics: ${err.message}`); }
+      finally { delete b.dataset.busy; }
+      return;
+    }
     const at = t.closest("[data-alerts-toggle]"); if (at) { alertsOpen = alertsOpen === at.dataset.alertsToggle ? null : at.dataset.alertsToggle; return schedule(); }
     if (t.closest("[data-open-device]") || (t.closest(".card .name") && !editing())) return openDevicePanel(t.closest("[data-id]").dataset.id);
     const hb = t.closest("[data-hist]"); if (hb) { const owner = hb.closest("[data-id]"); if (owner?.dataset.id && devices.has(owner.dataset.id)) return openDevicePanel(owner.dataset.id, "history", hb.dataset.hist); return; }

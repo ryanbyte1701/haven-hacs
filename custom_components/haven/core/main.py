@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 import re
 import secrets
@@ -29,6 +30,8 @@ from .timesync import TimeService
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("haven")
+from . import diagnostics as _diag   # noqa: E402
+_diag.install_log_buffer()           # recent warnings for Settings → Diagnostics
 # httpx logs full request URLs at INFO (API keys in query strings, webhook tokens): keep it quiet
 for _n in ("httpx", "httpcore"):
     logging.getLogger(_n).setLevel(logging.WARNING)
@@ -740,6 +743,22 @@ async def time_status(request: Request):
 
 
 # ---------------- history & Prometheus metrics ----------------
+@app.get("/api/diagnostics")
+async def diagnostics(request: Request):
+    """Anonymous tech dump for troubleshooting (admins): devices and what they report, integration status,
+    recent warnings. Names, rooms, addresses and ids are anonymised (app/diagnostics.py)."""
+    from . import diagnostics as diag
+    extra = {}
+    try:
+        extra["high_availability"] = {k: v for k, v in ha_mod.ha.status().items() if k in ("enabled", "state", "role")}
+    except Exception:  # noqa: BLE001
+        pass
+    data = await asyncio.to_thread(diag.build, hub, manager, history_store, settings_mod, extra=extra)
+    stamp = time.strftime("%Y%m%d-%H%M")
+    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="haven-diagnostics-{stamp}.json"',
+                                       "Cache-Control": "no-store"})
+
+
 @app.get("/api/history/info")
 async def history_info(request: Request):
     info = history_store.info()
