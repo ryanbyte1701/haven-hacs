@@ -60,6 +60,25 @@ SENSOR = {   # sensor device_class -> capability
     "water": "water_usage_today", "volume_flow_rate": "flow_rate", "signal_strength": "rssi",
 }
 SKIP_CATEGORIES = {"config", "diagnostic"}
+DOMAIN_LABELS = {   # entity types, as Settings shows them
+    "sensor": "Readings (temperature, power, battery…)", "binary_sensor": "On/off sensors (doors, motion, leaks, smoke)",
+    "light": "Lights", "switch": "Switches & plugs", "input_boolean": "Helper toggles", "siren": "Sirens", "lock": "Locks",
+    "valve": "Valves", "cover": "Blinds, shades & garage doors", "alarm_control_panel": "Alarm panels", "fan": "Fans",
+    "climate": "Thermostats", "weather": "Weather & forecast"}
+_INTEGRATION_NAMES = {
+    "tplink": "TP-Link", "tplink_omada": "TP-Link Omada", "tplink_deco": "TP-Link Deco", "ecobee": "ecobee", "mqtt": "MQTT",
+    "zha": "Zigbee (ZHA)", "zwave_js": "Z-Wave", "esphome": "ESPHome", "hue": "Philips Hue", "unifi": "UniFi Network",
+    "unifiprotect": "UniFi Protect", "hassio": "Home Assistant add-ons", "hacs": "HACS", "mobile_app": "Phones (Companion app)",
+    "met": "Met.no weather", "sun": "Sun", "nut": "NUT (UPS)", "kia_uvo": "Kia / Hyundai", "hyundai_kia_connect": "Hyundai / Kia",
+    "google_nest": "Google Nest", "nest": "Google Nest", "smartthings": "SmartThings", "homekit_controller": "HomeKit devices",
+    "upnp": "UPnP", "dlna_dmr": "DLNA", "cast": "Google Cast", "sonos": "Sonos", "xsense": "X-Sense", "yolink": "YoLink",
+    "ring": "Ring", "opower": "Utility (Opower)", "shelly": "Shelly", "template": "Templates", "group": "Groups",
+    "input_boolean": "Helpers", "wled": "WLED", "roborock": "Roborock", "ecowitt": "Ecowitt", "matter": "Matter",
+}
+
+
+def integration_label(domain: str) -> str:
+    return _INTEGRATION_NAMES.get(domain) or domain.replace("_", " ").title()
 
 # Home Assistant integrations whose devices are cars (Haven groups them as "Cars") or network equipment ("Network").
 VEHICLE_DOMAINS = {
@@ -84,6 +103,11 @@ APPLIANCE_DOMAINS = {
 }
 APPLIANCE_HINT = re.compile(r"washer|washing|dryer|dishwasher|fridge|refrigerator|freezer|oven|range hood|cooktop|"
                             r"microwave|coffee|espresso|kettle|ice maker|water heater|dehumidifier|humidifier", re.I)
+# smoke / CO alarms: by what they report, the integration they come from, or their name or model
+SMOKE_DOMAINS = {"xsense", "kidde", "kidde_homesafe", "onelink", "nest_protect", "netatmo_smoke", "smoke_alarm", "fireangel"}
+SMOKE_HINT = re.compile(r"\bsmoke\b|carbon monoxide|\bco ?(alarm|detector)|fire alarm|nest protect|\bxs0\d|\bsc0\d", re.I)
+SMOKE_TEXT = {"alarm": True, "detected": True, "smoke": True, "emergency": True, "warning": True, "fire": True,
+              "normal": False, "clear": False, "ok": False, "idle": False, "standby": False, "no_smoke": False, "off": False}
 VEHICLE_HINT = re.compile(r"odometer|mileage|driving range|ev range|fuel level|charge port|trunk|tire|tyre", re.I)
 
 # Home Assistant integration domain -> the Haven integration (Settings section label) that covers it.
@@ -191,6 +215,12 @@ def map_entity(entity_id: str, state: str, attrs: dict) -> dict[str, tuple[Any, 
             name = "odometer" if ("odometer" in low or "mileage" in low) else "range" if "range" in low else "distance"
         elif "fuel_level" in low and unit == "%":
             name = "fuel_level"
+        if name is None and v is None and str(state).lower() in SMOKE_TEXT \
+                and re.search(r"smoke|carbon_monoxide|\bco_|fire", f"{low} {str(attrs.get('friendly_name') or '').lower()}"):
+            # a smoke/CO alarm reporting its state as text ("normal" / "alarm"), e.g. some X-Sense and Kidde setups
+            name = "co" if re.search(r"carbon_monoxide|\bco_|carbon monoxide", f"{low} {str(attrs.get('friendly_name') or '').lower()}") else "smoke"
+            out[name] = (None if unavailable else SMOKE_TEXT[str(state).lower()], {})
+            return out
         if name is None:
             if v is None:
                 return None                                    # text sensors aren't imported
@@ -368,6 +398,10 @@ class HomeAssistantAdapter(Adapter):
         self.exclude = [p.strip() for p in _as_list(cfg.get("exclude")) if p.strip()]
         self.domains = set(_as_list(cfg.get("domains")) or DOMAINS) & set(DOMAINS)
         self.include_native = bool(cfg.get("include_native", False))
+        self.skip_integrations = {x.strip().lower() for x in _as_list(cfg.get("skip_integrations")) if x.strip()}
+        self.found: dict[str, set[str]] = {}          # HA integration domain -> device keys it brings (Settings list)
+        self.found_native: dict[str, str] = {}        # HA integration domain -> the Haven integration covering it
+        self.user_skipped = 0
         self.entry_domains: dict[str, str] = {}       # config entry id -> integration domain
         self.skipped: dict[str, int] = {}             # Haven integration label -> devices skipped
         self.imported = 0
@@ -534,6 +568,8 @@ class HomeAssistantAdapter(Adapter):
             total = sum(self.skipped.values())
             names = sorted(self.skipped, key=lambda k: (-self.skipped[k], k))
             msg += f" · skipped {total} from {', '.join(names)} (Haven connects to those directly)"
+        if self.user_skipped:
+            msg += f" · {self.user_skipped} from integrations you turned off"
         return msg
 
     # ---------------- import ----------------
@@ -566,6 +602,9 @@ class HomeAssistantAdapter(Adapter):
         self.registry = {e["entity_id"]: e for e in ents or []}
         grouped: dict[str, list[dict]] = {}
         skipped: dict[str, set[str]] = {}
+        found: dict[str, set[str]] = {}
+        found_native: dict[str, str] = {}
+        user_skipped: set[str] = set()
         for st in states or []:
             eid = st.get("entity_id", "")
             if not self._wanted(eid):
@@ -575,7 +614,16 @@ class HomeAssistantAdapter(Adapter):
                 continue
             reg = self.registry.get(eid) or {}
             key = reg.get("device_id") or eid
+            integ = self._main_integrations(eid)
+            for d in integ:
+                found.setdefault(d, set()).add(key)
+            if integ & self.skip_integrations:                 # turned off under Settings → Home Assistant
+                user_skipped.add(key)
+                continue
             native = None if self.include_native else self._native(eid)
+            if native:
+                for d in integ:
+                    found_native[d] = native
             if native:
                 skipped.setdefault(native, set()).add(key)
                 continue
@@ -593,6 +641,7 @@ class HomeAssistantAdapter(Adapter):
         self._forecast_now.set()                           # forecasts for weather entities that are new
         self.imported = count
         self.skipped = {k: len(v) for k, v in skipped.items()}
+        self.found, self.found_native, self.user_skipped = found, found_native, len(user_skipped - set(grouped))
         if count:
             self.status = "ok · " + self.summary()[len("Imported "):]
         else:
@@ -610,6 +659,31 @@ class HomeAssistantAdapter(Adapter):
         else:
             out = {reg.get("platform"), self.entry_domains.get(reg.get("config_entry_id") or "")}
         return {d for d in out if isinstance(d, str) and d}
+
+    def _main_integrations(self, eid: str) -> set[str]:
+        """The integration(s) a device comes from, as Settings lists them: its config entries' domains (an ecobee
+        thermostat is "ecobee", not every identifier namespace it carries); otherwise _integrations()."""
+        reg = self.registry.get(eid) or {}
+        dev = self.devices_reg.get(reg.get("device_id") or "")
+        out = {self.entry_domains.get(c) for c in (dev or {}).get("config_entries") or []}
+        if not dev:
+            out.add(self.entry_domains.get(reg.get("config_entry_id") or ""))
+        out = {d for d in out if isinstance(d, str) and d}
+        # add-ons that attach to other integrations' devices (Battery Notes, …) aren't where the device comes from:
+        # prefer the entries that also named the device (its identifiers)
+        idents = {i[0] for i in (dev or {}).get("identifiers") or [] if isinstance(i, (list, tuple)) and i}
+        return (out & idents) or out or self._integrations(eid)
+
+    def choices(self) -> dict:
+        """Settings → Home Assistant: the integrations found in Home Assistant (with how many devices each brings)
+        and the entity types, as switches. Integrations a Haven integration covers are listed but can't be switched."""
+        names = set(self.found) | self.skip_integrations
+        integ = [{"id": d, "label": integration_label(d), "count": len(self.found.get(d, ())),
+                  **({"locked": f"comes from Haven's {self.found_native[d]} integration"} if d in self.found_native else {})}
+                 for d in names]
+        integ.sort(key=lambda x: ("locked" in x, x["label"].lower()))
+        return {"skip_integrations": integ,
+                "domains": [{"id": d, "label": DOMAIN_LABELS.get(d, d)} for d in DOMAINS]}
 
     def _native(self, eid: str) -> str | None:
         """The Haven integration that already covers this entity's device, if any."""
@@ -736,6 +810,9 @@ class HomeAssistantAdapter(Adapter):
                 kind = "vehicle"
             elif doms & NETWORK_DOMAINS:
                 kind = "network"
+            elif "smoke" in caps or ("co" in caps and isinstance(values.get("co"), bool)) or doms & SMOKE_DOMAINS \
+                    or SMOKE_HINT.search(f"{name} {devreg.get('model') or ''}"):
+                kind = "smoke_alarm"
             elif doms & APPLIANCE_DOMAINS or APPLIANCE_HINT.search(f"{name} {devreg.get('model') or ''}"):
                 kind = "appliance"
         # doors vs windows: Home Assistant's device class decides which page a contact sensor goes on
@@ -954,7 +1031,10 @@ SETTINGS = {
         {"key": "access_token", "label": "Long-lived access token", "type": "password"},
         {"key": "areas", "label": "Only these areas (optional, comma-separated)", "type": "list"},
         {"key": "exclude", "label": "Skip entities (optional, e.g. sensor.*_rssi, light.hallway)", "type": "list"},
-        {"key": "domains", "label": "Entity types to import", "type": "list",
+        {"key": "skip_integrations", "label": "Integrations to show", "type": "toggles", "mode": "off", "default": [],
+         "help": "Everything Haven found in Home Assistant, with how many devices each brings. Turn one off and its "
+                 "devices leave Haven at the next refresh (nothing changes in Home Assistant)."},
+        {"key": "domains", "label": "Kinds of data to import", "type": "toggles", "mode": "on",
          "default": ["sensor", "binary_sensor", "light", "switch", "lock", "valve", "cover", "alarm_control_panel", "fan", "climate", "weather"]},
         {"key": "refresh_hours", "label": "Re-read devices and areas every (hours)", "type": "number", "default": 24},
         {"key": "verify_ssl", "label": "Check the HTTPS certificate", "type": "bool", "default": True},

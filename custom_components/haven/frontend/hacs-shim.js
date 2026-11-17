@@ -34,6 +34,7 @@
   // ---- API calls ----
   const realFetch = window.fetch.bind(window);
   const toHaven = u => "/api/haven/" + u.pathname.slice("/api/".length) + u.search;
+  window.HAVEN_URL = p => toHaven(new URL(p, location.href));     // plain links (downloads) to Haven's API
   // polled by the dashboard but not part of this edition (high availability): answer here, no 404s in the console
   const LOCAL = { "/api/ha/status": "null" };
   window.fetch = async (input, init = {}) => {

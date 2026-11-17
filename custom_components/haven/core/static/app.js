@@ -122,6 +122,13 @@
   const isGroup = d => d.attributes?.kind === "group";
   const isThermostat = d => kindOf(d) === "thermostat" || has(d, "hvac_mode") || ["heat_setpoint", "cool_setpoint", "target_temperature"].some(k => has(d, k));
   const SETPOINTS = ["target_temperature", "heat_setpoint", "cool_setpoint"];
+  const SMOKE_NAME = /\bsmoke\b|carbon monoxide|\bco ?(alarm|detector)|fire alarm|nest protect/i;
+  // devices that report nothing Haven recognises: guess the type from the name or model
+  const NAME_TYPES = [[/thermostat|ecobee|nest (learning|e)\b/i, "thermostat"], [/\b(leak|water sensor|flood)\b/i, "leak"],
+    [/\b(lock|deadbolt)\b/i, "lock"], [/\b(camera|cam|doorbell)\b/i, "camera"], [/\b(blinds?|shades?|curtains?|shutters?)\b/i, "shade"],
+    [/\b(door|gate|garage)\b/i, "door"], [/\b(motion|presence|occupancy)\b/i, "motion"], [/\b(lamp|light|bulb|sconce)\b/i, "light"],
+    [/\b(plug|outlet|socket|power strip)\b/i, "plug"], [/\b(router|access point|mesh|modem|nas)\b/i, "network"],
+    [/\b(vacuum|roomba|roborock)\b/i, "vacuum"], [/\b(purifier)\b/i, "purifier"], [/\b(valve)\b/i, "valve"], [/\b(ups)\b/i, "ups"]];
   // the setpoints that apply in the thermostat's current mode: one target (heat / cool / dry…), a heat–cool range
   // (auto / heat_cool), or none when it's off
   function shownSetpoints(d) {
@@ -158,7 +165,7 @@
     if (k === "weather") return "weather";
     if (k === "aqi_station" || k === "air_monitor") return "air";
     if (has(d, "alarm_panel")) return "alarm";
-    if (has(d, "smoke") || coAlarm(d) || any("heat", "gas")) return "smoke";
+    if (has(d, "smoke") || coAlarm(d) || any("heat", "gas") || k === "smoke_alarm" || (SMOKE_NAME.test(d.name) && !isLight(d))) return "smoke";
     if (has(d, "ding") || d.attributes?.has_snapshot || ["camera", "doorbell"].includes(k) || d.source === "ring") return "camera";
     if (isGroup(d)) return "light_group";
     if (isLight(d)) return "light";
@@ -174,7 +181,7 @@
     if (any("wind_speed", "rain_daily")) return "weather";
     if (has(d, "moisture") && !has(d, "temperature")) return "soil";
     if (any("temperature", "humidity")) return "climate";
-    return "other";
+    return NAME_TYPES.find(([re]) => re.test(`${d.name} ${d.model || ""}`))?.[1] || "other";
   }
   const PRESETS = ["#ffb46b", "#ffe9c9", "#ff5a4e", "#ff9f1c", "#7bd389", "#4cc2ff", "#8f6bff", "#ff6fb5"];
   function kelvinRgb(k) {   // Tanner Helland approximation, good enough for a glow color
@@ -818,6 +825,7 @@
     if (t === "battery") return val(d, "battery") != null || val(d, "battery_low") != null;
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
+    if (t === "security" && ["smoke", "alarm"].includes(deviceType(d))) return true;   // smoke/CO alarms always count as security
     if (t === "doors") return has(d, "contact") && !isWindow(d);
     if (t === "windows") return (has(d, "contact") && isWindow(d)) || isShade(d);
     if (t === "switches") return !isLight(d) && (isPlug(d) || Object.entries(d.capabilities).some(([k, c]) =>
@@ -1557,6 +1565,16 @@
     if (f.type === "select") return `<label class="textfield"><select data-key="${f.key}" id="${id}">${f.options.map(o => `<option value="${esc(o)}" ${o === v ? "selected" : ""}>${esc(OPTION_LABEL[o] || o)}</option>`).join("")}</select><span>${esc(f.label)}</span></label>${help}`;
     if (f.type === "servers") return `<div class="servers" data-key="${f.key}"><div class="field-label">${esc(f.label)}</div>${(v || []).map(serverRow).join("")}
       <button type="button" class="text-btn" data-add-server>${icon("add")} Add UPS</button></div>`;
+    if (f.type === "toggles") {       // one switch per choice; the value lists the ids that are on (mode on) or off (mode off)
+      const cur = new Set(Array.isArray(v) ? v : []), offMode = f.mode === "off";
+      const opts = [...(sec.choices?.[f.key] || (f.options || []).map(o => ({ id: o, label: o })))];
+      for (const id of cur) if (offMode && !opts.some(o => o.id === id)) opts.push({ id, label: id, count: 0 });
+      const rows = opts.map(o => { const on = o.locked ? false : offMode ? !cur.has(o.id) : cur.has(o.id);
+        return `<div class="tg-row ${o.locked ? "locked" : ""}"><span><b>${esc(o.label)}</b>${o.count != null || o.locked ? `<small class="muted">${o.locked ? esc(o.locked) : `${o.count} device${o.count === 1 ? "" : "s"}`}</small>` : ""}</span>
+          <button type="button" class="m3-switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-tg="${esc(o.id)}" aria-label="${esc(o.label)}" ${o.locked ? "disabled" : ""}></button></div>`; }).join("");
+      return `<div class="toggles" data-key="${f.key}" data-mode="${offMode ? "off" : "on"}"><div class="field-label">${esc(f.label)}</div>
+        ${rows || `<p class="muted small">${sec.enabled ? "Nothing found yet: press Refresh now, then reopen this page." : "Turn this integration on to see what Home Assistant has."}</p>`}${help}</div>`;
+    }
     if (f.type === "hostlist") {
       const items = Array.isArray(v) ? v : String(v || "").split(/[\s,;]+/).filter(Boolean);
       return `<div class="hostlist" data-key="${f.key}" data-item-label="${esc(f.item_label || "IP address")}"><div class="field-label">${esc(f.label)}</div>
@@ -1636,6 +1654,13 @@
         add("appliances"); if (has(d, "contact")) { drop("doors"); drop("windows"); drop("security"); }
         why.push(`it looks like an appliance (${(text.match(SA_APPLIANCE) || [""])[0].toLowerCase()})`); }
       if (!isLight(d) && d.capabilities.switch?.writable && SA_LAMP.test(d.name) && !cur.includes("lights")) { add("lights"); why.push("it switches a lamp"); }
+      // every recognised type has a home page: smoke alarms and locks in Security, leak sensors in Water…
+      const ty = deviceType(d), home = { smoke: "security", alarm: "security", lock: "security", motion: "security", camera: "security",
+        leak: "water", valve: "water", water: "water", thermostat: "climate", climate: "climate", light: "lights", shade: "windows",
+        door: isWindow(d) ? "windows" : "doors", plug: "switches", vacuum: edition === "hacs" ? "appliances" : "", purifier: "climate" }[ty];
+      if (home && !next.includes(home) && !(home === "lights" && why.length)) {
+        add(home); if (home === "windows") drop("doors");
+        why.push(`Haven recognises it as ${(TYPE_INFO[ty] || TYPE_INFO.other)[1].toLowerCase()}${["smoke", "lock"].includes(ty) ? ", which belong in Security" : ""}`); }
       const same = (a, b) => a.length === b.length && a.every(x => b.includes(x));
       if (why.length && !same(next, cur)) {
         const gone = cur.filter(t => !next.includes(t)).map(tabName), added = next.filter(t => !cur.includes(t)).map(tabName);
@@ -1974,9 +1999,12 @@
           <p class="muted small">Anonymous: device and room names become "Thermostat 1", "Room A"…; ids are scrambled; IP and MAC
             addresses, e-mail addresses, host names, tokens and passwords are removed; settings values are never included.
             Open the file to check before you share it.</p>
-          <div id="diag-sum" class="muted small"></div>
+          <div id="diag-sum" class="muted small"></div><div id="diag-link" class="diag-link" hidden></div>
           <div class="set-actions"><button type="button" class="tonal-btn" data-diag-copy>${icon("content_copy")}Copy summary</button>
+            <button type="button" class="tonal-btn" data-diag-gh>${icon("bug_report")}Report on GitHub</button>
             <span style="flex:1"></span><button type="button" class="filled-btn" data-diag-dl>${icon("download")}Download</button></div>
+          <p class="muted small"><b>Report on GitHub</b> opens a new issue on Haven's GitHub with the summary filled in. Download the
+            file too and drag it into the issue before you submit it, so it can be reviewed in full.</p>
         </section></div>`;
       return;
     } else if (["account", "users", "security"].includes(settingsSub)) {   // accounts.js draws these
@@ -2014,7 +2042,11 @@
   function collectSection(el) {
     const values = {};
     $$("[data-key]", el).forEach(i => {
-      if (i.classList.contains("hostlist")) {
+      if (i.classList.contains("toggles")) {
+        const off = i.dataset.mode === "off";
+        values[i.dataset.key] = $$("[data-tg]", i).filter(b => !b.disabled && b.classList.contains("on") !== off).map(b => b.dataset.tg);
+        if (!off && !values[i.dataset.key].length) delete values[i.dataset.key];   // all off: keep what was saved
+      } else if (i.classList.contains("hostlist")) {
         values[i.dataset.key] = $$("[data-hkey]", i).map(x => x.value.trim()).filter(Boolean);
       } else if (i.classList.contains("servers")) {
         values[i.dataset.key] = $$(".server-row", i).map(r => Object.fromEntries($$("[data-skey]", r).map(x => [x.dataset.skey, x.value.trim()])));
@@ -2766,26 +2798,36 @@
       return;
     }
     if (t.closest("[data-snapshot]")) return showSnapshot(t.closest("[data-id]").dataset.id);
-    if (t.closest("[data-diag-dl]") || t.closest("[data-diag-copy]")) {
-      const copy = !!t.closest("[data-diag-copy]"), b = t.closest("button"); b.dataset.busy = "1";
+    if (t.closest("[data-diag-dl]") || t.closest("[data-diag-copy]") || t.closest("[data-diag-gh]")) {
+      const b = t.closest("button"), what = b.matches("[data-diag-copy]") ? "copy" : b.matches("[data-diag-gh]") ? "gh" : "dl";
+      if (b.dataset.busy) return; b.dataset.busy = "1";
+      // GitHub opens in a new tab: open it now (inside the click) so pop-up blockers allow it, fill it in afterwards
+      const ghWin = what === "gh" ? window.open("about:blank", "_blank") : null;
       try {
-        const r = await fetch("/api/diagnostics", { headers: authHdr() });
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-        const data = await r.json(), text = JSON.stringify(data, null, 2);
+        // the server makes the file and a short-lived download link (a plain link downloads on phones and in the
+        // Home Assistant app, where a file made in the page can't be saved)
+        const data = await api("/api/diagnostics/link", { method: "POST" });
         const s = data.summary || {}, sumText = `Haven ${data.haven?.edition === "og" ? "OG" : "for Home Assistant"}${data.haven?.version ? " " + data.haven.version : ""} · ${s.devices} devices (${s.offline} offline) · ` +
           Object.entries(s.by_integration || {}).map(([k, v]) => `${k} ${v}`).join(", ");
+        const lines = [sumText, "Integrations: " + Object.entries(data.integrations || {}).map(([k, v]) => `${k}: ${v}`).join("; "),
+          ...((data.recent_warnings || []).map(w => `${w.level} ${w.logger}: ${w.message}`))];
         const el = $("#diag-sum"); if (el) el.textContent = sumText;
-        if (copy) {
-          const lines = [sumText, "Integrations: " + Object.entries(data.integrations || {}).map(([k, v]) => `${k}: ${v}`).join("; "),
-            ...((data.recent_warnings || []).slice(-10).map(w => `${w.level} ${w.logger}: ${w.message}`))];
-          await navigator.clipboard.writeText(lines.join("\n")); snack("Summary copied");
-        } else {
-          const a = document.createElement("a"), url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-          a.href = url; a.download = `haven-diagnostics-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}.json`;
-          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-          snack("Diagnostics downloaded");
+        const href = (window.HAVEN_URL || (p => p))(data.path);
+        if (what === "copy") { await navigator.clipboard.writeText(lines.join("\n")); snack("Summary copied"); }
+        else if (what === "gh") {
+          const body = `**What happened**\n\n<!-- describe the problem -->\n\n**Diagnostics summary** (anonymous)\n\n\`\`\`\n${lines.join("\n").slice(0, 5000)}\n\`\`\`\n\n` +
+            `<!-- Drag the downloaded haven-diagnostics-….json file here before submitting -->\n`;
+          const url = `https://github.com/ryanbyte1701/haven/issues/new?labels=diagnostics&title=${encodeURIComponent("Diagnostics: ")}&body=${encodeURIComponent(body)}`;
+          if (ghWin) ghWin.location.href = url; else window.open(url, "_blank", "noopener");
+          snack("Opened GitHub: add the downloaded file to the issue");
         }
-      } catch (err) { snack(`Couldn't create diagnostics: ${err.message}`); }
+        if (what !== "copy") {
+          if (what === "dl") { const a = document.createElement("a"); a.href = href; a.target = "_blank"; a.rel = "noopener";
+            a.download = data.path.split("/").pop(); document.body.appendChild(a); a.click(); a.remove(); snack("Downloading diagnostics"); }
+          const box = $("#diag-link");
+          if (box) { box.hidden = false; box.innerHTML = `${icon("download")}<span>${what === "gh" ? "Download the file to attach:" : "Didn't download?"} <a href="${esc(href)}" target="_blank" rel="noopener" download>${esc(data.path.split("/").pop())}</a> <small class="muted">(link works for ${Math.round((data.expires_in || 600) / 60)} minutes)</small></span>`; }
+        }
+      } catch (err) { if (ghWin) ghWin.close(); snack(`Couldn't create diagnostics: ${err.message}`); }
       finally { delete b.dataset.busy; }
       return;
     }
@@ -2868,6 +2910,11 @@
     if (card) {
       if (t.closest("[data-enable]")) { const sw = t.closest("[data-enable]"); sw.classList.toggle("on"); sw.ariaChecked = sw.classList.contains("on");
         if (sw.parentElement.classList.contains("enable-lbl")) sw.parentElement.firstChild.textContent = sw.classList.contains("on") ? "On" : "Off";
+        return; }
+      const tg = t.closest("[data-tg]");
+      if (tg && !tg.disabled) { tg.classList.toggle("on"); tg.setAttribute("aria-checked", tg.classList.contains("on"));
+        const box = tg.closest(".toggles");
+        if (box.dataset.mode === "on" && !$$("[data-tg].on", box).length) { tg.classList.add("on"); tg.setAttribute("aria-checked", "true"); snack("Keep at least one on"); }
         return; }
       if (t.closest("[data-add-host]")) { const b = t.closest("[data-add-host]"); b.insertAdjacentHTML("beforebegin", hostRow("", b.closest(".hostlist")?.dataset.itemLabel)); b.previousElementSibling.querySelector("input")?.focus(); return; }
       if (t.closest("[data-del-host]")) { const r = t.closest(".host-row"), list = r.parentElement; r.remove(); if (!$(".host-row", list)) $("[data-add-host]", list)?.insertAdjacentHTML("beforebegin", hostRow("", list.dataset.itemLabel)); return; }

@@ -379,7 +379,7 @@ def reset(data_dir: Path | str | None = None) -> AuthStore:
 
 # ------------------------------------------------------------ route policy
 PUBLIC_API = {"/api/health", "/api/auth/state", "/api/auth/login", "/api/auth/guest", "/api/ha/where"}
-PUBLIC_PREFIX = ("/api/ha/peer/",)          # HA peers authenticate with their own shared secret (app/ha.py)
+PUBLIC_PREFIX = ("/api/ha/peer/", "/api/diagnostics/file/")   # diagnostics: the link's random token is the permission          # HA peers authenticate with their own shared secret (app/ha.py)
 SELF_SERVICE = {("POST", "/api/auth/logout"), ("GET", "/api/me"), ("POST", "/api/me/password")}
 # config & secrets: never for monitors (and not for regular users, who can't change settings either)
 CONFIG_PATHS = ("/api/settings", "/api/automations", "/api/users", "/api/ha", "/api/ecowitt", "/api/aqara", "/api/diagnostics",

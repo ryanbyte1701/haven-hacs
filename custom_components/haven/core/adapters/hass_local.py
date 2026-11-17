@@ -244,7 +244,7 @@ class HassLocalAdapter(HomeAssistantAdapter):
             units = getattr(hass.config, "units", None)
             return {"unit_system": {"temperature": getattr(units, "temperature_unit", "°C")}}
         if kind == "config_entries/get":
-            return [{"entry_id": e.entry_id, "domain": e.domain} for e in hass.config_entries.async_entries()]
+            return [{"entry_id": e.entry_id, "domain": e.domain, "title": e.title} for e in hass.config_entries.async_entries()]
         raise RuntimeError(f"hass_local: unsupported request {kind!r}")
 
 
@@ -258,7 +258,10 @@ SETTINGS = {
     "fields": [
         {"key": "areas", "label": "Only these areas (optional, comma-separated)", "type": "list"},
         {"key": "exclude", "label": "Skip entities (optional, e.g. sensor.*_rssi, light.hallway)", "type": "list"},
-        {"key": "domains", "label": "Entity types to import", "type": "list", "default": list(DOMAINS)},
+        {"key": "skip_integrations", "label": "Integrations to show", "type": "toggles", "mode": "off", "default": [],
+         "help": "Everything Haven found in Home Assistant, with how many devices each brings. Turn one off and its "
+                 "devices leave Haven (nothing changes in Home Assistant)."},
+        {"key": "domains", "label": "Kinds of data to import", "type": "toggles", "mode": "on", "default": list(DOMAINS)},
     ],
     "actions": [{"id": "refresh", "label": "Refresh now", "icon": "sync"}],
 }

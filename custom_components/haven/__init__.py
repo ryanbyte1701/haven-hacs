@@ -106,7 +106,7 @@ async def _register_http(hass: HomeAssistant, runtime: HavenRuntime) -> None:
         return
     from homeassistant.components.http import StaticPathConfig
 
-    from .views import HavenApiView, HavenWebSocketView
+    from .views import HavenApiView, HavenDownloadView, HavenWebSocketView
 
     class _Current:
         @property
@@ -115,6 +115,7 @@ async def _register_http(hass: HomeAssistant, runtime: HavenRuntime) -> None:
 
     current = _Current()
     hass.http.register_view(HavenWebSocketView(current))
+    hass.http.register_view(HavenDownloadView(current))
     hass.http.register_view(HavenApiView(current))
     await hass.http.async_register_static_paths([
         StaticPathConfig(STATIC_URL, str(HERE / "core" / "static"), False),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 import logging
+import json
 import re
 import secrets
 import os
@@ -523,7 +524,15 @@ async def put_layout(body: Layout):
 # ---------------- Settings ----------------
 @app.get("/api/settings")
 async def get_settings():
-    return {"sections": settings_mod.public_view(manager.cfg, manager.statuses()),
+    sections = settings_mod.public_view(manager.cfg, manager.statuses())
+    for sec in sections:          # live choices an integration offers (e.g. the integrations found in Home Assistant)
+        a = hub.adapters.get(sec["id"])
+        if a is not None and hasattr(a, "choices"):
+            try:
+                sec["choices"] = a.choices()
+            except Exception as e:  # noqa: BLE001
+                log.debug("choices for %s failed: %s", sec["id"], e)
+    return {"sections": sections,
             "auth": True, "file": str(settings_mod.SETTINGS_FILE)}
 
 
@@ -758,20 +767,56 @@ async def time_status(request: Request):
 
 
 # ---------------- history & Prometheus metrics ----------------
-@app.get("/api/diagnostics")
-async def diagnostics(request: Request):
-    """Anonymous tech dump for troubleshooting (admins): devices and what they report, integration status,
-    recent warnings. Names, rooms, addresses and ids are anonymised (app/diagnostics.py)."""
+async def _diag_data() -> dict:
     from . import diagnostics as diag
     extra = {}
     try:
         extra["high_availability"] = {k: v for k, v in ha_mod.ha.status().items() if k in ("enabled", "state", "role")}
     except Exception:  # noqa: BLE001
         pass
-    data = await asyncio.to_thread(diag.build, hub, manager, history_store, settings_mod, extra=extra)
+    return await asyncio.to_thread(diag.build, hub, manager, history_store, settings_mod, extra=extra)
+
+
+@app.get("/api/diagnostics")
+async def diagnostics(request: Request):
+    """Anonymous tech dump for troubleshooting (admins): devices and what they report, integration status,
+    recent warnings. Names, rooms, addresses and ids are anonymised (app/diagnostics.py)."""
+    data = await _diag_data()
     stamp = time.strftime("%Y%m%d-%H%M")
     return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="haven-diagnostics-{stamp}.json"',
                                        "Cache-Control": "no-store"})
+
+
+# Download links: phones (the Home Assistant app's web view, iOS) can't save a file made in the page, but they can
+# download a plain link. An admin asks for a link; the file is made then and kept here for a few minutes, behind a
+# random token in the address (the token is the permission: the link works without signing in, like a share link).
+DIAG_LINK_TTL = 600
+_diag_files: dict[str, tuple[float, bytes]] = {}
+
+
+@app.post("/api/diagnostics/link")
+async def diagnostics_link(request: Request):
+    data = await _diag_data()
+    now = time.time()
+    for k in [k for k, (exp, _) in _diag_files.items() if exp < now]:
+        del _diag_files[k]
+    while len(_diag_files) >= 5:
+        del _diag_files[next(iter(_diag_files))]
+    tok = secrets.token_urlsafe(24)
+    _diag_files[tok] = (now + DIAG_LINK_TTL, json.dumps(data, indent=2).encode())
+    name = f"haven-diagnostics-{time.strftime('%Y%m%d-%H%M')}.json"
+    return {"path": f"/api/diagnostics/file/{tok}/{name}", "expires_in": DIAG_LINK_TTL, "summary": data.get("summary"),
+            "haven": data.get("haven"), "integrations": data.get("integrations"),
+            "recent_warnings": (data.get("recent_warnings") or [])[-10:]}
+
+
+@app.get("/api/diagnostics/file/{token}/{name}")
+async def diagnostics_file(token: str, name: str):
+    hit = _diag_files.get(token)
+    if not hit or hit[0] < time.time() or not re.fullmatch(r"haven-diagnostics-[0-9-]+\.json", name):
+        raise HTTPException(404, "This download link has expired: create a new one under Settings → Diagnostics.")
+    return Response(hit[1], media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @app.get("/api/history/info")

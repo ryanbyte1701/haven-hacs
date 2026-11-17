@@ -434,6 +434,11 @@ def save_section(section: str, enabled: bool, values: dict[str, Any]) -> dict:
                 v = v.strip()
         elif f["type"] == "bool":
             v = bool(v)
+        elif f["type"] == "toggles":        # switches: the ids that are on ("mode": "on") or off ("mode": "off")
+            if not isinstance(v, (list, tuple)):
+                raise ValueError(f"{f['label']}: must be a list")
+            v = list(dict.fromkeys(_scalar_str(f["label"], x, 80, truncate=True).strip() for x in v[:300]))
+            v = [x for x in v if x]
         elif f["type"] == "list":
             if v is not None and not isinstance(v, (str, list, tuple)):
                 raise ValueError(f"{f['label']}: must be a comma-separated list")

@@ -1434,3 +1434,17 @@ html[data-mode="dark"] .thermo.heat .tact { color: #ffb067; } html[data-mode="da
 .devpick-bar .textfield { flex: 1; min-width: 0; margin: 0; }
 .devpick-bar .text-btn { flex: none; white-space: nowrap; }
 .field-label small { font-weight: 400; font-size: 12px; margin-left: 6px; }
+/* Settings: switch lists (Home Assistant integrations / kinds of data) */
+.toggles { display: flex; flex-direction: column; margin: 8px 0 4px; }
+.tg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--md-outline-variant); }
+.tg-row:last-of-type { border-bottom: 0; }
+.tg-row > span { display: flex; flex-direction: column; min-width: 0; }
+.tg-row b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg-row small { font-size: 12px; }
+.tg-row.locked b { color: var(--md-on-surface-variant); }
+.tg-row .m3-switch { flex: none; }
+.tg-row .m3-switch:disabled { opacity: .4; }
+.diag-link { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: 8px 0; border-radius: var(--shape-m); background: var(--md-secondary-container); color: var(--md-on-secondary-container); font-size: 14px; overflow-wrap: anywhere; }
+.diag-link a { color: inherit; font-weight: 500; }
+.diag-link svg.ic { flex: none; }
+.toggles .fhelp { margin-top: 8px; display: block; }

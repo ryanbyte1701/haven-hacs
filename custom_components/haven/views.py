@@ -37,3 +37,19 @@ class HavenApiView(HomeAssistantView):
         return await self.runtime.bridge.handle_http(request, "/api/" + path)
 
     get = post = put = patch = delete = _handle
+
+
+class HavenDownloadView(HomeAssistantView):
+    """Diagnostics download links (/api/haven/diagnostics/file/<token>/<name>). The phone app hands such a link to
+    the system's downloader, which can't sign in: the random token in the address is the permission (Haven checks it
+    and lets it expire after a few minutes). Registered before HavenApiView so it wins for these paths."""
+
+    url = API_PREFIX + "/diagnostics/file/{path:.*}"
+    name = "api:haven:download"
+    requires_auth = False
+
+    def __init__(self, runtime) -> None:
+        self.runtime = runtime
+
+    async def get(self, request: web.Request, path: str) -> web.StreamResponse:
+        return await self.runtime.bridge.handle_http(request, "/api/diagnostics/file/" + path)
