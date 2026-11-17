@@ -525,13 +525,13 @@ async def put_layout(body: Layout):
 @app.get("/api/settings")
 async def get_settings():
     sections = settings_mod.public_view(manager.cfg, manager.statuses())
-    for sec in sections:          # live choices an integration offers (e.g. the integrations found in Home Assistant)
-        a = hub.adapters.get(sec["id"])
+    for section in sections:      # live choices an integration offers (e.g. the integrations found in Home Assistant)
+        a = hub.adapters.get(section["id"])
         if a is not None and hasattr(a, "choices"):
             try:
-                sec["choices"] = a.choices()
+                section["choices"] = a.choices()
             except Exception as e:  # noqa: BLE001
-                log.debug("choices for %s failed: %s", sec["id"], e)
+                log.debug("choices for %s failed: %s", section["id"], e)
     return {"sections": sections,
             "auth": True, "file": str(settings_mod.SETTINGS_FILE)}
 
@@ -847,6 +847,14 @@ async def metrics(request: Request):
 
 
 # ---------------- live updates ----------------
+def coalesce(batch: list) -> list:
+    """Device updates waiting for one client: keep each device's newest only, in the order of that newest one;
+    other messages (layout, alerts…) keep their place."""
+    last = {m["device"]["id"]: i for i, m in enumerate(batch) if isinstance(m, dict) and m.get("type") == "device"}
+    return [m for i, m in enumerate(batch)
+            if not (isinstance(m, dict) and m.get("type") == "device") or last[m["device"]["id"]] == i]
+
+
 @app.websocket("/ws")
 async def ws(socket: WebSocket):
     # accept first so the browser actually sees our close code (a close before accept arrives as 1006)
@@ -876,16 +884,19 @@ async def ws(socket: WebSocket):
                                 "layout": hub.layout})
         while True:
             try:
-                msg = await asyncio.wait_for(q.get(), timeout=25)
+                batch = [await asyncio.wait_for(q.get(), timeout=25)]
             except asyncio.TimeoutError:
-                msg = {"type": "ping"}
-            if msg is CLOSE:            # we fell too far behind: the client reconnects for a fresh snapshot
+                batch = [{"type": "ping"}]
+            while not q.empty() and len(batch) < 500:   # everything already waiting goes out together…
+                batch.append(q.get_nowait())
+            if any(m is CLOSE for m in batch):  # we fell too far behind: the client reconnects for a fresh snapshot
                 await socket.close(code=4408)
                 break
             if not accounts.store.still_valid(str(first.get("token"))[:200]):   # signed out, deleted, password/role changed
                 await socket.close(code=4401)
                 break
-            await socket.send_json(msg)
+            for msg in coalesce(batch):         # …with only the newest state of each device (a burst from HA)
+                await socket.send_json(msg)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

@@ -2,6 +2,14 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-17 (v7)
+
+- Home Assistant live updates are matched to each reading by name. Before, a reading that appeared after the first
+  import (a blind starting to report its position) could land on the wrong control until the next refresh.
+- Fewer, smaller live updates: when a device changes many times in a burst, each screen gets its newest state once.
+- Background tabs and phones with the screen off stop polling, and catch up as soon as Haven is on screen again.
+- Smart assignment checks large homes faster.
+
 ## 2026-11-17 (v6)
 
 - **Settings → Home Assistant**: a switch for every integration Haven found in Home Assistant (with how many

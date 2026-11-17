@@ -14,7 +14,7 @@ import json
 import re
 from typing import Any
 
-from .config import DATA_DIR, conf_dir, load_config, write_private
+from .config import DATA_DIR, conf_dir, load_config, write_private  # noqa: F401 - DATA_DIR: tests point it at a temp folder
 
 SETTINGS_FILE = conf_dir() / "settings.json"
 MASK = "********"

@@ -409,7 +409,9 @@ class HomeAssistantAdapter(Adapter):
         self._id = 0
         self._pending: dict[int, asyncio.Future] = {}
         self.entity_dev: dict[str, str] = {}          # entity_id -> haven device id
-        self.entity_caps: dict[str, list[str]] = {}   # entity_id -> haven capability names on its device
+        # entity_id -> {capability map_entity gives it: the name it has on its Haven device} (renamed when two
+        # entities give the same reading, for extra switches, appliance openings…). Live updates use it by name.
+        self.entity_caps: dict[str, dict[str, str]] = {}
         self.cap_entity: dict[tuple[str, str], str] = {}   # (haven device id, capability) -> entity_id
         self.registry: dict[str, dict] = {}
         self.devices_reg: dict[str, dict] = {}
@@ -748,7 +750,7 @@ class HomeAssistantAdapter(Adapter):
                 nut[var] = (st.get("state"), st.get("attributes") or {})
                 self.entity_nut[eid] = var
                 self.entity_dev[eid] = did
-                self.entity_caps[eid] = []
+                self.entity_caps[eid] = {}
                 continue
             if dom == "switch" and not self._switch_suffix(eid, st, str(name)):
                 has_switch = True
@@ -759,8 +761,9 @@ class HomeAssistantAdapter(Adapter):
             # A device's extra switches (a Ring camera's Siren, Motion detection, Privacy mode…) are their own
             # controls named after the entity, not the device's "Power" switch.
             extra = self._switch_suffix(eid, st, str(name)) if dom in ("switch", "input_boolean", "siren") else None
-            names = []
+            names: dict[str, str] = {}
             for cname, (v, kw) in mapped.items():
+                orig = cname
                 if extra and cname == "switch":
                     cname = "switch_" + re.sub(r"[^a-z0-9]+", "_", extra.lower()).strip("_")[:24]
                     kw = {**kw, "label": extra[:40]}
@@ -783,7 +786,7 @@ class HomeAssistantAdapter(Adapter):
                     kw.setdefault("label", str(label)[:40])
                 caps[final] = cap(final, **kw)
                 values[final] = v
-                names.append(final)
+                names[orig] = final
                 self.cap_entity[(did, final)] = eid
             self.entity_dev[eid] = did
             self.entity_caps[eid] = names
@@ -832,7 +835,7 @@ class HomeAssistantAdapter(Adapter):
                 del caps[k]
                 if eid:
                     self.cap_entity[(did, new)] = eid
-                    self.entity_caps[eid] = [new if c == k else c for c in self.entity_caps.get(eid, [])]
+                    self.entity_caps[eid] = {o: (new if c == k else c) for o, c in self.entity_caps.get(eid, {}).items()}
         plug_model = bool(re.search(r"\b(P1\d\d\w*|P3\d\d\w*|TP25\w*|KP\d+\w*|HS1\d\d\w*|EP\d+\w*|HS300|KP\d+)\b|plug|outlet|strip",
                                     f"{devreg.get('model') or ''} {devreg.get('name') or ''}", re.I))
         if kind is None and has_switch and not has_light and (outlet or plug_model or any(
@@ -878,11 +881,8 @@ class HomeAssistantAdapter(Adapter):
             self.hub.set_values(did, parse_status(nv), online=ns.get("state") != "unavailable")
             return
         mapped = map_entity(eid, ns.get("state"), self._attrs(eid, ns.get("attributes"))) or {}
-        names = self.entity_caps.get(eid, [])
-        vals = {}
-        for (cname, (v, _kw)), final in zip(mapped.items(), names):
-            if v is not None:
-                vals[final] = v
+        names = self.entity_caps.get(eid, {})
+        vals = {names[c]: v for c, (v, _kw) in mapped.items() if v is not None and c in names}
         if eid.startswith("weather."):
             wa = ns.get("attributes") or {}
             self.weather_attrs[eid] = dict(wa)

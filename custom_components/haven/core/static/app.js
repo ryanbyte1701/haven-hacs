@@ -1641,6 +1641,7 @@
     const out = [], all = [...devices.values()].filter(d => !d.hidden);
     const rooms = [...new Set(all.map(d => d.room).filter(r => r && r !== "Other"))].sort((a, b) => b.length - a.length);
     const reEsc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const roomRe = new Map(rooms.map(r => [r, [new RegExp(`(^|\\b)${reEsc(r)}\\b`, "i"), new RegExp(`^${reEsc(r)}\\b`, "i"), new RegExp(reEsc(r), "i")]]));
     for (const d of all) {
       const text = `${d.name} ${(d.attributes?.ha_entities || []).join(" ").replace(/[._]/g, " ")}`;
       const cur = tabsOf(d), auto = autoTabs(d), custom = Array.isArray(d.categories);
@@ -1672,10 +1673,10 @@
           why: "your manual pages are the same as what Haven picks, so it can keep up by itself", on: true });
       }
       // rooms: a device without one whose name starts with (or contains) a room's name
-      const hit = rooms.find(r => new RegExp(`(^|\\b)${reEsc(r)}\\b`, "i").test(d.name));
+      const hit = rooms.find(r => roomRe.get(r)[0].test(d.name));
       if ((!d.room || d.room === "Other") && hit) out.push({ key: `room:${d.id}`, id: d.id, body: { room: hit }, title: d.name,
         change: `Put in ${hit}`, why: "it has no room and its name mentions this one", on: true });
-      else if (d.room && hit && hit !== d.room && new RegExp(`^${reEsc(hit)}\\b`, "i").test(d.name) && !new RegExp(reEsc(d.room), "i").test(d.name))
+      else if (d.room && hit && hit !== d.room && roomRe.get(hit)[1].test(d.name) && !(roomRe.get(d.room)?.[2] || new RegExp(reEsc(d.room), "i")).test(d.name))
         out.push({ key: `room:${d.id}`, id: d.id, body: { room: hit }, title: d.name, change: `Move from ${d.room} to ${hit}`,
           why: "its name starts with another room (off until you tick it: it may be on purpose)", on: false });
     }
@@ -3104,9 +3105,12 @@
     renderHeader();
     setInterval(renderHeader, 15000);
     setInterval(() => !PAGES.has(view) && scheduleQuiet(), 30000);
-    setInterval(loadSparks, 300000);
-    setInterval(() => view === "power" && loadPower(), 10000);
-    setInterval(loadStatus, 15000);
+    // background tabs and phones with the screen off don't poll: everything refreshes when the page is seen again
+    const shown = () => !document.hidden;
+    setInterval(() => shown() && loadSparks(), 300000);
+    setInterval(() => shown() && view === "power" && loadPower(), 10000);
+    setInterval(() => shown() && loadStatus(), 15000);
+    document.addEventListener("visibilitychange", () => { if (shown()) { loadStatus(); if (view === "power") loadPower(); } });
     loadStatus();
     setInterval(loadHa, 15000);   // standby / fault banner
     loadHa();
