@@ -240,6 +240,9 @@ class HassLocalAdapter(HomeAssistantAdapter):
         if kind == "get_states":
             return [{"entity_id": s.entity_id, "state": s.state, "attributes": dict(s.attributes)}
                     for s in hass.states.async_all(DOMAINS)]
+        if kind == "get_config":
+            units = getattr(hass.config, "units", None)
+            return {"unit_system": {"temperature": getattr(units, "temperature_unit", "°C")}}
         if kind == "config_entries/get":
             return [{"entry_id": e.entry_id, "domain": e.domain} for e in hass.config_entries.async_entries()]
         raise RuntimeError(f"hass_local: unsupported request {kind!r}")

@@ -16,8 +16,8 @@
   let timeCfg = { hour12: undefined, timeZone: undefined };
   const timeOpts = () => ({ ...(timeCfg.hour12 !== undefined ? { hour12: timeCfg.hour12 } : {}), ...(timeCfg.timeZone ? { timeZone: timeCfg.timeZone } : {}) });
   let layout = { rooms: [], order: {}, pinned: [], views: [] };
-  const VIEW_TYPES = { climate: "Climate", lights: "Lights", water: "Water", doors: "Doors", security: "Security",
-    controls: "Controls", battery: "Batteries", power: "UPS" };
+  const VIEW_TYPES = { climate: "Climate", lights: "Lights", water: "Water", doors: "Doors", windows: "Windows", security: "Security",
+    controls: "Controls", switches: "Switches", appliances: "Appliances", battery: "Batteries", power: "Power" };
   const VIEW_ICONS = ["dashboard", "home", "bedtime", "lightbulb", "thermostat", "water_drop", "sensor_door", "shield_lock",
     "power", "grass", "partly_cloudy_day", "videocam", "home_work", "tune", "battery_full", "lan", "sprinkler", "detector_smoke"];
   const customView = () => view.startsWith("v:") ? (layout.views || []).find(v => "v:" + v.id === view) : null;
@@ -114,19 +114,32 @@
   const isOutdoor = d => /outdoor|weather|backyard|patio|garden/i.test(`${d.room} ${d.name}`);
   const isUps = d => has(d, "ups_status");
   // window sensors (Home Assistant device class "window", or "window" in the name) get their own page, not Doors
-  const isWindow = d => d.attributes?.opening === "window" || (d.attributes?.opening !== "door" && /\bwindows?\b/i.test(d.name));
+  const isShade = d => has(d, "shade");
+  const isWindow = d => isShade(d) || d.attributes?.opening === "window" || (d.attributes?.opening !== "door" && /\bwindows?\b/i.test(d.name));
   const isPlug = d => kindOf(d) === "smart_plug";
   const coAlarm = d => has(d, "co") && typeof val(d, "co") !== "number";   // outdoor AQI services report CO as a number
   const isLight = d => d.attributes?.kind === "light" || d.attributes?.kind === "group" || (has(d, "light") && has(d, "brightness"));
   const isGroup = d => d.attributes?.kind === "group";
   const isThermostat = d => kindOf(d) === "thermostat" || has(d, "hvac_mode") || ["heat_setpoint", "cool_setpoint", "target_temperature"].some(k => has(d, k));
+  const SETPOINTS = ["target_temperature", "heat_setpoint", "cool_setpoint"];
+  // the setpoints that apply in the thermostat's current mode: one target (heat / cool / dry…), a heat–cool range
+  // (auto / heat_cool), or none when it's off
+  function shownSetpoints(d) {
+    const w = SETPOINTS.filter(k => d.capabilities[k]?.writable), m = String(val(d, "hvac_mode") || "");
+    if (m === "off") return [];
+    const range = w.includes("heat_setpoint") && w.includes("cool_setpoint");
+    if (w.includes("target_temperature")) return /^(heat_cool|auto)$/.test(m) && range ? ["heat_setpoint", "cool_setpoint"] : ["target_temperature"];
+    if (/^(heat|aux_heat_only|emergency_heat)$/.test(m)) return w.filter(k => k === "heat_setpoint");
+    if (m === "cool") return w.filter(k => k === "cool_setpoint");
+    return w;
+  }
 
   // ---------- device types (Group by: Type) ----------
   // One human type per device, in the order the sections appear. Edit this list to add or reorder types.
   const DEVICE_TYPES = [
     ["thermostat", "Thermostats", "thermostat"], ["climate", "Temperature & humidity", "device_thermostat"], ["air", "Air quality", "aq_indoor"],
     ["purifier", "Purifiers", "air_purifier"], ["light", "Lights", "lightbulb"], ["light_group", "Light groups", "home_iot_device"],
-    ["plug", "Plugs & switches", "outlet"], ["lock", "Locks", "lock"], ["door", "Doors & windows", "door_front"],
+    ["plug", "Plugs & switches", "outlet"], ["lock", "Locks", "lock"], ["door", "Doors & windows", "door_front"], ["shade", "Blinds & shades", "blinds"],
     ["motion", "Motion & presence", "sensor_occupied"], ["camera", "Cameras & doorbells", "videocam"], ["alarm", "Alarm panels", "shield"],
     ["smoke", "Smoke & CO alarms", "detector_smoke"], ["leak", "Leak sensors", "water_damage"], ["valve", "Valves", "valve"],
     ["water", "Water", "water"], ["soil", "Soil moisture", "grass"], ["weather", "Weather", "partly_cloudy_day"], ["ups", "UPS", "battery_charging_full"],
@@ -153,6 +166,7 @@
     if (["pool", "water_monitor", "irrigation_zone", "irrigation_controller"].includes(k) || any("ph", "flow_rate", "watering", "water_usage_today")) return "water";
     if (has(d, "leak")) return "leak";
     if (has(d, "valve")) return "valve";
+    if (isShade(d)) return "shade";
     if (has(d, "contact")) return "door";
     if (any("motion", "presence") || (has(d, "occupancy") && typeof val(d, "occupancy") !== "number")) return "motion";
     if (k === "smart_plug" || has(d, "switch")) return "plug";
@@ -198,6 +212,7 @@
     if (has(d, "lock")) return val(d, "lock") === "unlocked" ? ["lock_open", "warn"] : ["lock", ""];
     if (has(d, "ding")) return ["doorbell", val(d, "ding") ? "warn" : val(d, "motion") ? "active" : ""];
     if (d.source === "ring" || d.attributes?.has_snapshot) return [has(d, "light") ? "lightbulb" : "videocam", val(d, "motion") ? "active" : ""];
+    if (isShade(d)) return ["blinds", val(d, "shade") === "open" ? "active" : ""];
     if (has(d, "contact")) return val(d, "contact") === "open" ? ["door_open", "warn"] : ["door_front", ""];
     if (has(d, "presence")) return ["sensor_occupied", val(d, "presence") ? "active" : ""];
     if (has(d, "occupancy") && typeof val(d, "occupancy") !== "number") return ["sensor_occupied", val(d, "occupancy") ? "active" : ""];
@@ -231,6 +246,7 @@
     if (has(d, "lock")) return val(d, "lock") === "locked" ? ["Locked", ""] : val(d, "lock") ? ["Unlocked", "warn"] : ["Unknown", ""];
     if (has(d, "valve")) return val(d, "valve") === "open" ? ["Open", ""] : val(d, "valve") ? ["Closed", ""] : ["Unknown", ""];
     if (has(d, "ding")) return val(d, "ding") ? ["Doorbell!", "warn"] : val(d, "motion") ? ["Motion", ""] : ["Quiet", ""];
+    if (isShade(d)) { const p = val(d, "position"); return [typeof p === "number" ? (p <= 0 ? "Closed" : p >= 100 ? "Open" : `${Math.round(p)}% open`) : val(d, "shade") === "open" ? "Open" : val(d, "shade") ? "Closed" : "Unknown", ""]; }
     if (has(d, "contact")) return val(d, "contact") === "open" ? ["Open", "warn"] : ["Closed", ""];
     if (has(d, "presence")) return val(d, "presence") ? ["Occupied", ""] : ["Clear", ""];
     if (has(d, "occupancy") && typeof val(d, "occupancy") === "boolean") return val(d, "occupancy") ? ["Occupied", ""] : ["Clear", ""];
@@ -305,7 +321,7 @@
     return `<div class="status ${esc(s[1])}">${esc(s[0])}${extra ? `<span class="s2">${esc(extra)}</span>` : ""}</div>`;
   }
   function metaBlock(d) {
-    const skip = new Set(["temperature", "humidity", "battery", "battery_low", "leak", "smoke", "co", "heat", "contact", "lock", "valve",
+    const skip = new Set(["temperature", "humidity", "battery", "battery_low", "leak", "smoke", "co", "heat", "contact", "shade", "lock", "valve",
       "switch", "motion", "presence", "vibration", "action", "tamper", "ups_status", "charging", "replace_battery", "overload",
       "output_voltage", "runtime", "alarm_panel", "ding", "light", "wind_dir", "brightness", "color_temp", "color",
       "status_text", "vacuum_state", "charger_status", "charging", "watering", "air_score", "ph", "mode", "fan_speed", "oscillation",
@@ -362,10 +378,9 @@
     if (c.switch?.writable) out.push(sw("switch", val(d, "switch"), c.switch.label || "Power"));
     // generic controls for any other writable capability (purifier modes, fan speed, charge limit, standby…)
     const HANDLED = new Set(["lock", "valve", "alarm_panel", "switch", "light", "brightness", "color_temp", "color", "action"]);
-    const tmode = kindOf(d) === "thermostat" ? val(d, "hvac_mode") : null;
     for (const [k, cp] of Object.entries(c)) {
       if (!cp.writable || HANDLED.has(k)) continue;
-      if (tmode && ((k === "heat_setpoint" && /^(cool|off)$/.test(tmode)) || (k === "cool_setpoint" && /^(heat|aux_heat_only|off)$/.test(tmode)))) continue;
+      if (SETPOINTS.includes(k) && isThermostat(d) && !shownSetpoints(d).includes(k)) continue;
       const off = (has(d, "switch") && !val(d, "switch")) || (has(d, "light") && !val(d, "light"));
       if (cp.options?.length) {
         const opts = cp.options;
@@ -386,7 +401,7 @@
     const btns = [];
     if (d.attributes?.has_snapshot) btns.push(`<button class="tonal-btn" data-snapshot>${icon("photo_camera")}Snapshot</button>`);
     if (c.action?.writable) btns.push(...(c.action.options || []).map(o =>
-      `<button class="tonal-btn" data-cmd="action" data-val="${esc(JSON.stringify(o))}">${icon({ mute: "notifications", siren: "campaign", start: "power_settings_new", stop: "power_off", pause: "timer", dock: "home", locate: "notifications_active", resume_schedule: "schedule" }[o] || (/^run/.test(o) ? "sprinkler" : "science"))}${esc(pretty(o))}</button>`));
+      `<button class="tonal-btn" data-cmd="action" data-val="${esc(JSON.stringify(o))}">${icon({ mute: "notifications", siren: "campaign", open: "arrow_upward", close: "arrow_downward", start: "power_settings_new", stop: "power_off", pause: "timer", dock: "home", locate: "notifications_active", resume_schedule: "schedule" }[o] || (/^run/.test(o) ? "sprinkler" : "science"))}${esc(pretty(o))}</button>`));
     if (btns.length) out.push(`<div class="tonal-row">${btns.join("")}</div>`);
     return out.flatMap(x => Array.isArray(x) ? x : [x]).filter(Boolean);
   }
@@ -804,7 +819,7 @@
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
     if (t === "doors") return has(d, "contact") && !isWindow(d);
-    if (t === "windows") return has(d, "contact") && isWindow(d);
+    if (t === "windows") return (has(d, "contact") && isWindow(d)) || isShade(d);
     if (t === "switches") return !isLight(d) && (isPlug(d) || Object.entries(d.capabilities).some(([k, c]) =>
       c.writable && (k === "switch" || k.startsWith("switch_")) && !/siren/i.test(k + (c.label || ""))));
     if (t === "appliances") return ["appliance", "vacuum", "air_purifier"].includes(kindOf(d)) || has(d, "vacuum_state");
@@ -816,7 +831,8 @@
   function viewMatch(v, d) {
     if ((v.devices || []).includes(d.id)) return true;
     const rules = [v.rooms?.length && (() => v.rooms.includes(d.room || "Other")), v.types?.length && (() => v.types.some(t => TAB_IDS.includes(t) ? tabsOf(d).includes(t) : typeMatch(d, t))),
-      v.sources?.length && (() => v.sources.includes(d.source))].filter(Boolean);
+      v.sources?.length && (() => v.sources.includes(d.source)),
+      v.keywords?.length && (() => { const nm = `${d.name} ${d.room || ""}`.toLowerCase(); return v.keywords.some(k => nm.includes(k.toLowerCase())); })].filter(Boolean);
     return rules.length > 0 && rules.every(f => f());
   }
   function matches(d) {
@@ -872,7 +888,7 @@
     ["power", "Power use", "bolt"], ["ups", "UPS / mains power", "battery_charging_full"], ["batteries", "Batteries", "battery_full"],
     ["lights", "Lights", "lightbulb"], ["water", "Water", "water"], ["offline", "Offline devices", "wifi_off"],
     ["ev", "EV charger", "ev_station"], ["vacuum", "Vacuum", "vacuum"], ["irrigation", "Irrigation", "sprinkler"], ["pool", "Pool", "pool"]];
-  const HOME_DEFAULT = { weather: true, forecast: true, station: true, climate: true, aqi_outdoor: true, aqi_indoor: true,
+  const HOME_DEFAULT = { weather: true, forecast: true, station: true, climate: true, thermostat: true, aqi_outdoor: true, aqi_indoor: true,
     favorites: true, rooms: true, greeting: true, tiles: ["leaks", "security", "safety", "power", "ups", "batteries", "lights", "water", "offline"] };
   const homeCfg = () => ({ ...HOME_DEFAULT, ...(layout.home || {}) });
   const WX_ICON = { clear: ["clear_day", "partly_cloudy_night"], partly: ["partly_cloudy_day", "partly_cloudy_night"], cloudy: ["cloud", "cloud"],
@@ -1057,6 +1073,66 @@
       <div class="hcx-sub">${hums.length ? `${Math.round(hums.reduce((a, b) => a + b, 0) / hums.length)}% humidity · ` : ""}<span class="nw">${temp(Math.min(...ts))}–${temp(Math.max(...ts))}°</span></div>
       <ul class="hcx-list">${rows}</ul></section>`;
   }
+  // ---------- Home: thermostat controls ----------
+  // −/+ change the shown number at once and send after a short pause (one command for several taps); until the
+  // thermostat reports the new setpoint the card keeps showing what was asked for.
+  const thermoPend = {};                 // "id|cap" -> {v: °C, until: ms}
+  const tStep = () => unit === "F" ? 5 / 9 : 0.5;
+  const tRound = c => unit === "F" ? (Math.round(toUnit(c)) - 32) * 5 / 9 : Math.round(c * 2) / 2;
+  const tShow = c => c == null ? "–" : unit === "F" ? `${Math.round(toUnit(c))}` : (Math.round(c * 2) / 2).toFixed(1);
+  function setpointNow(d, k) {
+    const p = thermoPend[d.id + "|" + k];
+    if (p && Date.now() < p.until && Math.abs((val(d, k) ?? 1e9) - p.v) > 0.2) return p.v;
+    delete thermoPend[d.id + "|" + k];
+    return val(d, k);
+  }
+  const ACTION_WORD = { heating: "Heating", cooling: "Cooling", idle: "Idle", off: "Off", fan: "Fan only", drying: "Drying", preheating: "Preheating", defrosting: "Defrosting" };
+  const MODE_LABEL = { heat_cool: "Auto", auto: "Auto", heat: "Heat", cool: "Cool", off: "Off", dry: "Dry", fan_only: "Fan", aux_heat_only: "Aux heat", emergency_heat: "Emergency heat" };
+  function thermoCard(d) {
+    const act = String(val(d, "hvac_action") || "").toLowerCase(), mode = String(val(d, "hvac_mode") || "");
+    const tone = /heat/.test(act) ? "heat" : /cool/.test(act) ? "cool" : "";
+    const word = ACTION_WORD[act] || (act ? pretty(act) : mode === "off" ? "Off" : val(d, "status_text") || "");
+    const sps = shownSetpoints(d), dis = d.online && canControl() ? "" : "disabled";
+    const label = k => d.capabilities[k]?.label || { target_temperature: "Set to", heat_setpoint: "Heat to", cool_setpoint: "Cool to" }[k];
+    const sp = sps.map(k => `<div class="tset ${k === "cool_setpoint" ? "cool" : k === "heat_setpoint" ? "heat" : ""}"><small>${esc(label(k))}</small>
+        <div class="tset-row"><button type="button" class="icon-btn tbtn" data-tstep="${k}:-1" aria-label="${esc(label(k))} lower" ${dis}>${icon("remove")}</button>
+        <b>${tShow(setpointNow(d, k))}<small>°${unit}</small></b>
+        <button type="button" class="icon-btn tbtn" data-tstep="${k}:1" aria-label="${esc(label(k))} higher" ${dis}>${icon("add")}</button></div></div>`).join("");
+    const modes = d.capabilities.hvac_mode?.writable ? d.capabilities.hvac_mode.options || [] : [];
+    const seg = modes.length ? `<div class="segmented tmodes">${modes.map(o => `<button type="button" data-cmd="hvac_mode" data-val="${esc(JSON.stringify(o))}" class="${o === mode ? "on" : ""}" aria-pressed="${o === mode}" ${dis}>${esc(MODE_LABEL[o] || pretty(o))}</button>`).join("")}</div>` : "";
+    const resume = (d.capabilities.action?.options || []).includes("resume_schedule") && d.capabilities.action.writable !== false
+      ? `<button type="button" class="text-btn" data-cmd="action" data-val='"resume_schedule"' ${dis}>${icon("schedule")}Resume schedule</button>` : "";
+    const hum = val(d, "humidity");
+    return `<section class="hcardx thermo ${tone} ${d.online ? "" : "offline"}" data-id="${esc(d.id)}">
+      <div class="hcx-head">${icon("thermostat")}<span class="tname">${esc(d.name)}${d.room && d.room !== d.name ? `<small> · ${esc(d.room)}</small>` : ""}</span>
+        <button type="button" class="icon-btn sm topen" data-open-device aria-label="${esc(d.name)} details">${icon("open_in_full")}</button></div>
+      <div class="tbody">
+        <div class="tnow"><div class="hcx-big">${val(d, "temperature") == null ? "–" : temp(val(d, "temperature"))}<small>°${unit}</small></div>
+          <div class="hcx-sub">${word ? `<span class="tact">${esc(word)}</span>` : ""}${typeof hum === "number" ? `<span>${Math.round(hum)}% humidity</span>` : ""}${d.online ? "" : "<span>Offline</span>"}</div></div>
+        ${sp ? `<div class="tsets">${sp}</div>` : mode === "off" ? `<div class="tsets muted">Turned off</div>` : ""}
+      </div>
+      ${seg || resume ? `<div class="tfoot">${seg}${resume}</div>` : ""}
+    </section>`;
+  }
+  function homeThermostats(list) {
+    const ts = list.filter(d => isThermostat(d) && (d.capabilities.hvac_mode?.writable || SETPOINTS.some(k => d.capabilities[k]?.writable)))
+      .sort((a, b) => b.online - a.online || a.name.localeCompare(b.name)).slice(0, 6);
+    return ts.length ? `<div class="home-thermos n${ts.length}">${ts.map(thermoCard).join("")}</div>` : "";
+  }
+  function thermoStep(btn) {
+    const id = btn.closest("[data-id]").dataset.id, d = devices.get(id); if (!d) return;
+    if (!canControl()) return snack("Viewing only: sign in to control devices");
+    const [k, dir] = btn.dataset.tstep.split(":"), cp = d.capabilities[k];
+    const cur = setpointNow(d, k) ?? val(d, "temperature") ?? 21;
+    let v = tRound(cur + Number(dir) * tStep());
+    if (cp?.min != null) v = Math.max(v, Number(cp.min)); if (cp?.max != null) v = Math.min(v, Number(cp.max));
+    const key = id + "|" + k;
+    thermoPend[key] = { v, until: Date.now() + 15000 };
+    btn.parentElement.querySelector("b").innerHTML = `${tShow(v)}<small>°${unit}</small>`;
+    clearTimeout(thermoStep[key]);
+    thermoStep[key] = setTimeout(() => sendCmd(id, k, Math.round(v * 100) / 100, true), 900);
+  }
+
   function homeAirOut(list) {
     const st = list.find(d => kindOf(d) === "aqi_station" && typeof val(d, "aqi") === "number"); if (!st) return "";
     const a = val(st, "aqi"), [, cat, col] = aqiBand(a);
@@ -1101,6 +1177,7 @@
       ? `<button type="button" class="hcardx hint" data-goto-setting="weather">${icon("partly_cloudy_day")}<span><b>Add the weather forecast</b><small>Settings → Weather forecast</small></span></button>` : "";
     return `<div class="home-dash">
       ${hero.length || noWx ? `<div class="home-hero n${hero.length} ${(hero.length - (hero[0]?.includes("hcardx weather") ? 1 : 0)) % 2 ? "odd" : ""}">${hero.join("")}${hero.length < 2 ? noWx : ""}</div>` : ""}
+      ${cfg.thermostat ? homeThermostats(list) : ""}
       ${tiles.length ? `<div class="home-tiles">${tiles.join("")}</div>` : ""}
       ${admin ? `<button type="button" class="text-btn home-custom" data-goto-setting="home">${icon("dashboard_customize")}Customize</button>` : ""}
     </div>`;
@@ -1311,10 +1388,12 @@
 
   // ---------- power page ----------
   let nutHist = {}, powerRange = load("powerRange", "24h");
+  let powerTrend = null;
   async function loadPower() {
-    await Promise.all(visible().filter(isUps).map(async d => {
+    const pt = api(`/api/power/history?range=${powerRange}`).then(r => { powerTrend = r; }).catch(() => {});
+    await Promise.all([pt, ...visible().filter(isUps).map(async d => {
       for (const k of ["battery", "load"]) try { nutHist[d.id + "|" + k] = await api(`/api/devices/${encodeURIComponent(d.id)}/history/${k}?range=${powerRange}`); } catch {}
-    }));
+    })]);
     if (view === "power") scheduleQuiet();
   }
   function gauge(pct, tone) {
@@ -1342,12 +1421,86 @@
       <div class="table-wrap"><table class="plug-table"><thead><tr><th>Plug</th><th class="num">Using</th><th class="num">Today</th><th class="num">This month</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     </section>`;
   }
+  // ---------- power trend: total and per device ----------
+  const PCOLORS = ["#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#b07aa1", "#9c9c9c"];
+  const watts = w => w == null ? "–" : w >= 1000 ? `${fmt(Math.round(w / 100) / 10)} kW` : `${fmt(Math.round(w))} W`;
+  const kwhText = k => k == null ? "–" : k >= 100 ? `${fmt(Math.round(k))} kWh` : k >= 1 ? `${fmt(Math.round(k * 10) / 10)} kWh` : `${fmt(Math.round(k * 1000))} Wh`;
+  function powerStack(pt) {              // the biggest users get their own band; the rest share "Everything else"
+    const top = pt.devices.filter(d => d.kwh > 0 || d.points.some(v => v)).slice(0, 6);
+    const rest = pt.devices.filter(d => !top.includes(d));
+    const bands = top.map((d, i) => ({ id: d.id, name: d.name, color: PCOLORS[i], points: d.points }));
+    if (rest.length) bands.push({ id: "", name: `Everything else (${rest.length})`, color: PCOLORS[6],
+      points: pt.t.map((_, i) => rest.reduce((a, d) => a + (d.points[i] || 0), 0)) });
+    return bands;
+  }
+  function powerChart(pt, bands) {
+    const W = 800, H = 220, L = 0, B = H - 2, N = pt.t.length;
+    const tot = pt.t.map((_, i) => bands.reduce((a, b) => a + (b.points[i] || 0), 0));
+    const max = Math.max(1, ...tot) * 1.08;
+    const x = i => L + i / Math.max(1, N - 1) * (W - L), y = v => B - v / max * (B - 6);
+    let under = pt.t.map(() => 0);
+    const paths = bands.map(b => {
+      const top = under.map((u, i) => u + (b.points[i] || 0));
+      const d = `M${top.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("L")}L${under.map((v, i) => [i, v]).reverse().map(([i, v]) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("L")}Z`;
+      under = top;
+      return `<path d="${d}" fill="${b.color}" fill-opacity=".78" stroke="${b.color}" stroke-width="1"/>`;
+    }).join("");
+    const grid = [0.25, 0.5, 0.75, 1].map(f => `<line x1="0" x2="${W}" y1="${y(max / 1.08 * f).toFixed(1)}" y2="${y(max / 1.08 * f).toFixed(1)}"/>`).join("");
+    const labels = [0.5, 1].map(f => `<span style="top:${(y(max / 1.08 * f) / H * 100).toFixed(1)}%">${watts(max / 1.08 * f)}</span>`).join("");
+    const span = pt.end - pt.start;
+    return `<div class="ptrend-chart" data-n="${N}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g class="grid">${grid}</g>${paths}
+        <path class="ptotal" d="M${tot.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("L")}"/><line class="pcursor" x1="0" x2="0" y1="0" y2="${H}" hidden/></svg>
+      <div class="ylabels">${labels}</div><div class="ptip" hidden></div>
+      <div class="xlabels"><span>${esc(fmtTime(pt.start, span))}</span><span>${esc(fmtTime(pt.start + span / 2, span))}</span><span>Now</span></div></div>`;
+  }
+  function powerTrendPanel(list) {
+    const pt = powerTrend;
+    if (!pt?.devices?.length) return "";
+    const metered = list.filter(d => has(d, "power"));
+    const nowW = metered.reduce((a, d) => a + (d.online ? Number(val(d, "power")) || 0 : 0), 0);
+    const bands = powerStack(pt);
+    const color = Object.fromEntries(bands.filter(b => b.id).map(b => [b.id, b.color]));
+    const total = pt.total_kwh || 0;
+    const rows = pt.devices.map(d => {
+      const dev = devices.get(d.id), share = total > 0 ? d.kwh / total * 100 : 0;
+      const sp = d.points.filter(v => v != null).length > 1 ? sparkSvg(d.points.map((v, i) => ({ t: pt.t[i], v: v ?? 0 })), "power", 32) : "";
+      return `<tr data-id="${esc(d.id)}" class="${d.online ? "" : "offline"}">
+        <td class="c-name"><div class="dev"><span class="pdot" style="background:${color[d.id] || PCOLORS[6]}"></span><div><b>${esc(d.name)}</b><small>${esc([d.room, dev && isUps(dev) ? "UPS" : ""].filter(Boolean).join(" · "))}${d.online ? "" : " · Offline"}</small></div></div></td>
+        <td class="c-spark">${sp}</td>
+        <td class="num">${watts(d.online ? d.now : null)}</td><td class="num">${watts(d.average)}</td><td class="num">${watts(d.peak)}</td>
+        <td class="num"><b>${kwhText(d.kwh)}</b><div class="pshare"><i style="width:${share.toFixed(1)}%;background:${color[d.id] || PCOLORS[6]}"></i></div></td></tr>`;
+    }).join("");
+    const stat = (label, value) => `<div class="pstat"><div><small>${esc(label)}</small><b>${esc(value)}</b></div></div>`;
+    return `<section class="ups-panel ptrend" data-id="ptrend">
+      <div class="ups-head"><div><h3>${icon("bolt")} Power use</h3><small>${pt.devices.length} metered device${pt.devices.length === 1 ? "" : "s"} · last ${esc(powerRange)}</small></div></div>
+      <div class="pstats ptstats">${stat("Using now", watts(nowW))}${stat(`Average · ${powerRange}`, watts(pt.average))}${stat(`Peak · ${powerRange}`, watts(pt.peak))}${stat(`Energy · ${powerRange}`, kwhText(total))}</div>
+      ${powerChart(pt, bands)}
+      <div class="plegend">${bands.map(b => `<span><i style="background:${b.color}"></i>${esc(b.name)}</span>`).join("")}</div>
+      <div class="table-wrap"><table class="plug-table ptrend-table"><thead><tr><th>Device</th><th>Trend</th><th class="num">Now</th><th class="num">Average</th><th class="num">Peak</th><th class="num">Energy</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </section>`;
+  }
+  function powerTip(e) {                 // hover/touch the trend chart: time, total and the top bands at that moment
+    const box = e.target.closest?.(".ptrend-chart"); if (!box || !powerTrend) return;
+    const r = box.querySelector("svg").getBoundingClientRect(), pt = powerTrend, N = pt.t.length;
+    const i = Math.max(0, Math.min(N - 1, Math.round((e.clientX - r.left) / r.width * (N - 1))));
+    const bands = powerStack(pt), tip = box.querySelector(".ptip"), cur = box.querySelector(".pcursor");
+    const xv = (i / Math.max(1, N - 1) * 800).toFixed(1); cur.setAttribute("x1", xv); cur.setAttribute("x2", xv); cur.hidden = false;
+    const tot = bands.reduce((a, b) => a + (b.points[i] || 0), 0);
+    tip.innerHTML = `<b>${esc(fmtTime(pt.t[i], pt.end - pt.start > 2 * 86400 ? 3 * 86400 : 3600))}</b><div>Total <b>${watts(tot)}</b></div>` +
+      bands.filter(b => b.points[i]).map(b => `<div><i style="background:${b.color}"></i>${esc(b.name)} <b>${watts(b.points[i])}</b></div>`).join("");
+    tip.hidden = false;
+    const left = e.clientX - r.left; tip.style.left = `${Math.min(Math.max(0, left + 12), r.width - tip.offsetWidth)}px`;
+  }
+  document.addEventListener("pointermove", powerTip);
+  document.addEventListener("pointerleave", e => { const b = e.target.closest?.(".ptrend-chart"); if (b) { b.querySelector(".ptip").hidden = true; b.querySelector(".pcursor").hidden = true; } }, true);
+
   function powerPage(list) {
     // several UPSes: the ones on battery (or low) first, then by name
     const upsRank = d => ({ low_battery: 0, on_battery: 1 }[val(d, "ups_status")] ?? (d.online ? 3 : 2));
     const ups = list.filter(isUps).sort((a, b) => upsRank(a) - upsRank(b) || a.name.localeCompare(b.name)), plugs = list.filter(isPlug);
     $("#summary").innerHTML = "";
-    $("#alerts").innerHTML = ups.length ? `<div class="segmented ranges" id="power-ranges">${histRanges.filter(r => r !== "1h").map(r =>
+    const metered = list.some(d => has(d, "power"));
+    $("#alerts").innerHTML = ups.length || metered ? `<div class="segmented ranges" id="power-ranges">${histRanges.filter(r => r !== "1h").map(r =>
       `<button type="button" data-prange="${r}" class="${r === powerRange ? "on" : ""}">${r}</button>`).join("")}</div>` : "";
     const steady = (pts, u) => pts?.length > 1 && pts.every(p => p.v === pts[0].v) ? ` · steady at ${esc(fmt(pts[0].v))}${u}` : "";
     const stat = (ic, label, value) => `<div class="pstat">${icon(ic)}<div><small>${esc(label)}</small><b>${esc(value)}</b></div></div>`;
@@ -1376,7 +1529,7 @@
           <table>${Object.entries(v).sort().map(([k, x]) => `<tr><td>${esc(k)}</td><td>${esc(x)}</td></tr>`).join("")}</table></details>
       </section>`;
     }).join("");
-    $("#rooms").innerHTML = ups.length || plugs.length ? `<div class="power-wrap">${panels}${plugPanel(plugs)}</div>`
+    $("#rooms").innerHTML = ups.length || plugs.length || powerTrend?.devices?.length ? `<div class="power-wrap">${powerTrendPanel(list)}${panels}${plugPanel(plugs)}</div>`
       : `<div class="empty-state">${icon("power")}<h3>No UPS or smart plugs yet</h3><p>Add your UniFi UPS under Settings → UPS (NUT), or Tapo plugs under Settings → TP-Link Tapo plugs.</p>
          <button class="tonal-btn" data-goto="settings">${icon("settings")}Open Settings</button></div>`;
   }
@@ -1459,6 +1612,82 @@
       `°${unit}`, cardStyle === "minimal" ? "Minimal cards" : "Standard cards", mode === "table" ? "Table" : "Cards",
       `${(CHART_STYLES.find(c => c[0] === chartStyle) || CHART_STYLES[0])[1]} charts`, load("groupByDefault", "room") === "type" ? "By type" : ""].filter(Boolean).join(" · ");
   }
+  // ---------- Settings → Smart assignment: suggested page and room changes, applied only once approved ----------
+  const SA_WINDOW = /\b(blinds?|shades?|curtains?|drapes?|shutters?|awnings?|windows?|skylights?)\b/i;
+  const SA_DOOR = /\b(doors?|gates?|garage)\b/i;
+  const SA_APPLIANCE = /\b(washer|washing machine|dryer|fridge|refrigerator|freezer|dishwasher|oven|range|microwave|water heater|hood)\b/i;
+  const SA_LAMP = /\b(lamps?|lights?|sconces?|chandelier|pendant|bulbs?|led strip)\b/i;
+  let saOff = new Set();                 // suggestions the user unticked
+  const tabName = t => (TABS.find(x => x[0] === t) || [, t])[1];
+  function smartSuggestions() {
+    const out = [], all = [...devices.values()].filter(d => !d.hidden);
+    const rooms = [...new Set(all.map(d => d.room).filter(r => r && r !== "Other"))].sort((a, b) => b.length - a.length);
+    const reEsc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const d of all) {
+      const text = `${d.name} ${(d.attributes?.ha_entities || []).join(" ").replace(/[._]/g, " ")}`;
+      const cur = tabsOf(d), auto = autoTabs(d), custom = Array.isArray(d.categories);
+      let next = [...cur]; const why = [];
+      const add = t => { if (!next.includes(t)) next.push(t); }, drop = t => { next = next.filter(x => x !== t); };
+      if (cur.includes("doors") && !isWindow(d) && SA_WINDOW.test(d.name) && !SA_DOOR.test(d.name)) {
+        drop("doors"); add("windows"); why.push(`the name mentions "${(d.name.match(SA_WINDOW) || ["window"])[0].toLowerCase()}"`); }
+      else if (cur.includes("windows") && !isShade(d) && SA_DOOR.test(d.name) && !SA_WINDOW.test(d.name)) {
+        drop("windows"); add("doors"); why.push("the name says it's a door"); }
+      if (edition === "hacs" && SA_APPLIANCE.test(text) && !["vehicle", "network"].includes(kindOf(d)) && !cur.includes("appliances")) {
+        add("appliances"); if (has(d, "contact")) { drop("doors"); drop("windows"); drop("security"); }
+        why.push(`it looks like an appliance (${(text.match(SA_APPLIANCE) || [""])[0].toLowerCase()})`); }
+      if (!isLight(d) && d.capabilities.switch?.writable && SA_LAMP.test(d.name) && !cur.includes("lights")) { add("lights"); why.push("it switches a lamp"); }
+      const same = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+      if (why.length && !same(next, cur)) {
+        const gone = cur.filter(t => !next.includes(t)).map(tabName), added = next.filter(t => !cur.includes(t)).map(tabName);
+        out.push({ key: `tabs:${d.id}`, id: d.id, body: same(next, auto) ? { auto_categories: true } : { categories: TAB_IDS.filter(t => next.includes(t)) },
+          title: d.name, change: [added.length ? `Add to ${added.join(", ")}` : "", gone.length ? `remove from ${gone.join(", ")}` : ""].filter(Boolean).join(", "),
+          why: why.join("; "), on: true });
+      } else if (custom && same(cur, auto)) {
+        out.push({ key: `auto:${d.id}`, id: d.id, body: { auto_categories: true }, title: d.name, change: "Back to automatic pages",
+          why: "your manual pages are the same as what Haven picks, so it can keep up by itself", on: true });
+      }
+      // rooms: a device without one whose name starts with (or contains) a room's name
+      const hit = rooms.find(r => new RegExp(`(^|\\b)${reEsc(r)}\\b`, "i").test(d.name));
+      if ((!d.room || d.room === "Other") && hit) out.push({ key: `room:${d.id}`, id: d.id, body: { room: hit }, title: d.name,
+        change: `Put in ${hit}`, why: "it has no room and its name mentions this one", on: true });
+      else if (d.room && hit && hit !== d.room && new RegExp(`^${reEsc(hit)}\\b`, "i").test(d.name) && !new RegExp(reEsc(d.room), "i").test(d.name))
+        out.push({ key: `room:${d.id}`, id: d.id, body: { room: hit }, title: d.name, change: `Move from ${d.room} to ${hit}`,
+          why: "its name starts with another room (off until you tick it: it may be on purpose)", on: false });
+    }
+    return out.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  const saOn = sg => saOff.has(sg.key) ? false : sg.on || saOff.has("+" + sg.key);
+  function smartHtml() {
+    const sg = smartSuggestions(), picked = sg.filter(saOn);
+    const rows = sg.map(x => { const on = saOn(x), [ic, tone] = devices.get(x.id) ? deviceIcon(devices.get(x.id)) : ["sensors", ""];
+      return `<label class="sa-row ${on ? "on" : ""}"><input type="checkbox" data-sa="${esc(x.key)}" ${on ? "checked" : ""}>
+        <span class="avatar ${tone}">${icon(ic, !!tone)}</span><span class="ltext"><b>${esc(x.title)}</b><span class="sa-change">${esc(x.change)}</span><small>Because ${esc(x.why)}</small></span></label>`; }).join("");
+    return `<div class="dhead"><span class="avatar big">${icon("wand_stars")}</span><div><h2>Smart assignment</h2><small>Suggested pages and rooms · nothing changes until you approve</small></div></div>
+      <section class="set-card">
+        <p class="muted small">Haven looks at every device's name and what it reports and suggests where it belongs: blinds and windows on Windows instead of Doors, appliances on Appliances, lamps on smart plugs on Lights, a room for devices without one. Tick the ones you want and press Apply. You can undo any of them later from the device's edit menu.</p>
+        ${sg.length ? `<div class="sa-bar"><button type="button" class="text-btn" data-sa-all="1">Select all</button><button type="button" class="text-btn" data-sa-all="0">Select none</button>
+          <span style="flex:1"></span><button type="button" class="text-btn" data-sa-rescan>${icon("sync")}Check again</button></div>
+          <div class="sa-list">${rows}</div>
+          <div class="set-actions"><span class="muted small">${picked.length} of ${sg.length} selected</span><span style="flex:1"></span>
+            <button type="button" class="filled-btn" data-sa-apply ${picked.length ? "" : "disabled"}>${icon("check")}Apply ${picked.length || ""}</button></div>`
+        : `<div class="sa-empty">${icon("check_circle", true)}<span>Everything looks assigned. Check again after adding devices.</span></div>`}
+      </section>`;
+  }
+  async function smartApply(btn) {
+    const sg = smartSuggestions().filter(saOn); if (!sg.length) return;
+    btn.disabled = true;
+    const by = {};
+    for (const x of sg) { const b = by[x.id] ||= {}; Object.assign(b, x.body); if (b.categories && b.auto_categories) delete b.auto_categories; }
+    let ok = 0, fail = 0;
+    for (const [id, body] of Object.entries(by)) {
+      try { devices.set(id, await api(`/api/devices/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) })); ok++; }
+      catch { fail++; }
+    }
+    saOff = new Set();
+    snack(fail ? `Applied ${ok} change${ok === 1 ? "" : "s"}; ${fail} failed` : `Applied ${ok} change${ok === 1 ? "" : "s"}`);
+    renderBadges(); renderSettings();
+  }
+
   function renderSettings() {
     $("#summary").innerHTML = ""; $("#alerts").innerHTML = "";
     if (!settingsData) { $("#rooms").innerHTML = `<p class="empty">Loading…</p>`; return; }
@@ -1476,7 +1705,8 @@
     $("#rooms").innerHTML = `<div class="settings-wrap list">
       ${group("Your accounts", `${on.length} on${issues ? ` · ${issues} need${issues === 1 ? "s" : ""} attention` : ""}`, on.map(s => { const [t, tone] = secStatus(s); return row(s.id, s.icon, s.label, t, tone); }).join(""))}
       ${group("Add an account", "", off.map(s => row(s.id, s.icon, s.label, "Off", "off")).join(""))}
-      ${group("Dashboard", "", row("home", "dashboard_customize", "Home page & menu", homeSummary()) + row("appearance", "palette", "Appearance", appearanceSummary()) +
+      ${group("Dashboard", "", row("home", "dashboard_customize", "Home page & menu", homeSummary()) +
+        (() => { const n = smartSuggestions().length; return row("smart", "wand_stars", "Smart assignment", n ? `${n} suggestion${n === 1 ? "" : "s"} to review` : "Everything looks assigned", n ? "warn" : ""); })() + row("appearance", "palette", "Appearance", appearanceSummary()) +
         (() => { const t = settingsData.sections.find(s => s.id === "time"); return t ? row("time", t.icon, t.label, ...secStatus(t)) : ""; })() +
         (hist ? row("history", hist.icon, hist.label, ...secStatus(hist)) : "") + (demo ? row("demo", demo.icon, demo.label, ...secStatus(demo)) : ""))}
       ${(() => { const sys = ["backup", "ha"].map(id => settingsData.sections.find(s => s.id === id)).filter(Boolean);
@@ -1512,7 +1742,7 @@
   const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["doors", "Doors"], ["windows", "Windows"],
     ["security", "Security"], ["controls", "Controls"], ["switches", "Switches"], ...(edition === "hacs" ? [["appliances", "Appliances"]] : []), ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
   function homeSummary() {
-    const c = homeCfg(), on = ["weather", "climate", "aqi_outdoor", "aqi_indoor"].filter(k => c[k]).length;
+    const c = homeCfg(), on = ["weather", "climate", "thermostat", "aqi_outdoor", "aqi_indoor"].filter(k => c[k]).length;
     const hidden = (c.hidden_pages || []).length;
     return `${on} cards · ${(c.tiles || []).length} status tiles${hidden ? ` · ${hidden} page${hidden > 1 ? "s" : ""} hidden` : ""}`;
   }
@@ -1534,7 +1764,7 @@
       <section class="set-card"><h3 class="set-h">Top of the Home page</h3>
         ${sw("weather", "Weather", "needs Weather forecast or a weather station")}${sw("forecast", "Forecast for the next days")}
         ${sw("station", "Use my weather station for the current reading", "Ecowitt / outdoor sensor")}
-        ${sw("climate", "Inside temperature & humidity")}${sw("aqi_outdoor", "Outdoor air quality")}${sw("aqi_indoor", "Indoor air quality")}</section>
+        ${sw("climate", "Inside temperature & humidity")}${sw("thermostat", "Thermostat controls", "mode and temperature for each thermostat")}${sw("aqi_outdoor", "Outdoor air quality")}${sw("aqi_indoor", "Indoor air quality")}</section>
       <section class="set-card"><h3 class="set-h">Status tiles</h3><p class="muted small">Tiles only appear when you have devices for them. Use the arrows to change the order.</p>
         <div class="tlist">${tileRows}</div></section>
       <section class="set-card"><h3 class="set-h">Below the tiles</h3>${sw("favorites", "Favorites", "cards you pinned")}${sw("rooms", "All rooms and devices")}</section>
@@ -1731,6 +1961,8 @@
           <div class="frow"><span>Layout</span>${seg("layout-seg", [["cards", "Cards", "grid_view"], ["table", "Table", "table_rows"]], mode, "layout")}</div>
           <div class="frow"><span>Group by<small class="muted">for pages you haven't set yet</small></span>${seg("groupby-seg", [["room", "Room", "door_front"], ["type", "Type", "category"]], load("groupByDefault", "room"), "gbdefault")}</div>
         </section>`;
+    } else if (settingsSub === "smart") {
+      body = smartHtml();
     } else if (settingsSub === "diagnostics") {
       $("#rooms").innerHTML = `<div class="settings-wrap detail">${back}
         <div class="dhead"><span class="avatar big">${icon("bug_report")}</span><div><h2>Diagnostics</h2><small class="lstat info"><i></i><span>Anonymous tech dump</span></small></div></div>
@@ -1794,7 +2026,12 @@
   // ---------- custom views ----------
   function openViewEditor(existing) {
     const dlg = $("#viewdlg"), f = $("#view-form");
-    const v = existing ? JSON.parse(JSON.stringify(existing)) : { id: Math.random().toString(36).slice(2, 9), name: "", icon: "dashboard", rooms: [], types: [], sources: [], devices: [] };
+    const v = existing ? JSON.parse(JSON.stringify(existing)) : { id: Math.random().toString(36).slice(2, 9), name: "", icon: "dashboard", rooms: [], types: [], sources: [], devices: [], keywords: [] };
+    v.keywords ||= [];
+    const kw = $("#view-keywords"), ds = $("#view-devsearch");
+    kw.value = v.keywords.join(", "); ds.value = "";
+    const devShown = () => { const q = ds.value.trim().toLowerCase();
+      return all.filter(d => !q || `${d.name} ${d.room || ""} ${srcLabel(d)}`.toLowerCase().includes(q)); };
     $("#view-title").textContent = existing ? "Edit view" : "New view";
     $("#view-delete").hidden = !existing;
     f.name.value = v.name;
@@ -1807,8 +2044,10 @@
       $("#pick-rooms").innerHTML = chips("rooms", rooms);
       $("#pick-types").innerHTML = chips("types", Object.keys(VIEW_TYPES), t => VIEW_TYPES[t]);
       $("#pick-sources").innerHTML = chips("sources", sources, x => SRC[x] || x);
-      $("#pick-devices").innerHTML = all.sort((a, b) => (a.room || "").localeCompare(b.room || "") || a.name.localeCompare(b.name)).map(d =>
-        `<label><input type="checkbox" data-pick-dev="${esc(d.id)}" ${v.devices.includes(d.id) ? "checked" : ""}><span>${esc(d.name)}</span><small>${esc(d.room || "Other")} · ${esc(srcLabel(d))}</small></label>`).join("");
+      const shown = devShown();
+      $("#pick-devices").innerHTML = (shown.sort((a, b) => (a.room || "").localeCompare(b.room || "") || a.name.localeCompare(b.name)).map(d =>
+        `<label><input type="checkbox" data-pick-dev="${esc(d.id)}" ${v.devices.includes(d.id) ? "checked" : ""}><span>${esc(d.name)}</span><small>${esc(d.room || "Other")} · ${esc(srcLabel(d))}</small></label>`).join("")) || `<p class="muted small">No device matches “${esc(ds.value)}”.</p>`;
+      $("#view-pickall").textContent = shown.length && shown.every(d => v.devices.includes(d.id)) ? "Unpick all shown" : `Pick all shown (${shown.length})`;
       const n = all.filter(d => viewMatch(v, d)).length;
       $("#view-count").innerHTML = `${icon("info")}<span>${n} device${n === 1 ? "" : "s"} match${n === 1 ? "es" : ""} right now</span>`;
     };
@@ -1817,6 +2056,12 @@
         v[k] = v[k].includes(x) ? v[k].filter(y => y !== x) : [...v[k], x]; draw(); return; }
       const ip = e.target.closest("[data-icon-pick]"); if (ip) { v.icon = ip.dataset.iconPick; draw(); }
     };
+    kw.oninput = () => { v.keywords = kw.value.split(",").map(x => x.trim()).filter(Boolean).slice(0, 20); draw(); kw.focus(); };
+    ds.oninput = () => draw();
+    ds.onkeydown = e => { if (e.key === "Enter") e.preventDefault(); };
+    kw.onkeydown = e => { if (e.key === "Enter") e.preventDefault(); };
+    $("#view-pickall").onclick = () => { const ids = devShown().map(d => d.id), allIn = ids.length && ids.every(id => v.devices.includes(id));
+      v.devices = allIn ? v.devices.filter(id => !ids.includes(id)) : [...new Set([...v.devices, ...ids])]; draw(); };
     f.onchange = e => { const cb = e.target.closest("[data-pick-dev]"); if (!cb) return;
       v.devices = cb.checked ? [...v.devices, cb.dataset.pickDev] : v.devices.filter(x => x !== cb.dataset.pickDev); draw(); };
     $("#view-delete").onclick = async () => {
@@ -2490,6 +2735,13 @@
     disarm: "Disarm", arm_home: "Arm (home)", arm_away: "Arm (away)" };
   document.addEventListener("click", async e => {
     const t = e.target;
+    const ts = t.closest("[data-tstep]"); if (ts) return thermoStep(ts);
+    if (view === "settings" && settingsSub === "smart") {
+      const all = t.closest("[data-sa-all]");
+      if (all) { saOff = new Set(); smartSuggestions().forEach(x => all.dataset.saAll === "1" ? (!x.on && saOff.add("+" + x.key)) : saOff.add(x.key)); return renderSettings(); }
+      if (t.closest("[data-sa-rescan]")) { saOff = new Set(); renderSettings(); return snack("Checked again"); }
+      const ap = t.closest("[data-sa-apply]"); if (ap) return smartApply(ap);
+    }
     const b = t.closest("[data-cmd]");
     if (b) {
       if (!canControl()) return snack("Viewing only: sign in to control devices");
@@ -2665,6 +2917,9 @@
     sliding = true;
   });
   document.addEventListener("change", e => {
+    const sa = e.target.closest?.("[data-sa]");
+    if (sa) { const k = sa.dataset.sa, x = smartSuggestions().find(y => y.key === k);
+      saOff.delete(k); saOff.delete("+" + k); if (x && sa.checked !== x.on) saOff.add(sa.checked ? "+" + k : k); return renderSettings(); }
     const ds = e.target.closest("[data-devsel]");
     if (ds) { devSel[ds.dataset.devsel] = ds.value; devicesPage(); return; }
     if (e.target.id === "devsort") { devSort = { key: e.target.value, dir: 1 }; store("devSort", JSON.stringify(devSort)); devicesPage(); return; }

@@ -229,18 +229,41 @@ def map_entity(entity_id: str, state: str, attrs: dict) -> dict[str, tuple[Any, 
     elif domain == "valve":
         out["valve"] = (None if unavailable else ("open" if state in ("open", "opening") else "closed"), {})
     elif domain == "cover":
-        out["contact"] = (None if unavailable else ("open" if state in ("open", "opening") else "closed"), {})
+        is_open = None if unavailable else state in ("open", "opening")
+        if dc in SHADE_CLASSES or (dc in (None, "") and SHADE_HINT.search(f"{entity_id} {attrs.get('friendly_name') or ''}")):
+            # blinds, shades, curtains, awnings, shutters: window coverings, not doors (and never "not secure")
+            out["shade"] = (None if is_open is None else ("open" if is_open else "closed"), {"label": "Shade"})
+            if "current_position" in attrs:
+                out["position"] = (_num(attrs.get("current_position")), {"writable": True, "min": 0, "max": 100, "step": 1, "unit": "%", "label": "Open"})
+        else:
+            out["contact"] = (None if is_open is None else ("open" if is_open else "closed"), {})
         out["action"] = (None, {"writable": True, "options": ["open", "close", "stop"]})
     elif domain == "alarm_control_panel":
         out["alarm_panel"] = (state if state in ALARM_STATES else None, {})
     elif domain == "climate":
-        cur = to_celsius(_num(attrs.get("current_temperature")), attrs.get("temperature_unit") or unit)
-        if cur is not None:
-            out["temperature"] = (cur, {})
-        h = _num(attrs.get("current_humidity"))
-        if h is not None:
-            out["humidity"] = (h, {})
+        # Climate attributes are in Home Assistant's own unit system (the adapter adds it as temperature_unit).
+        # The same capabilities in the same order on every update (_apply pairs them by position), so the
+        # setpoints are decided by what the thermostat supports, not by its current mode.
+        tu = attrs.get("temperature_unit") or unit
+        c = lambda k: to_celsius(_num(attrs.get(k)), tu)  # noqa: E731
+        out["temperature"] = (c("current_temperature"), {})
+        if "current_humidity" in attrs:
+            out["humidity"] = (_num(attrs.get("current_humidity")), {})
         out["status_text"] = (None if unavailable else str(attrs.get("hvac_action") or state).replace("_", " ").capitalize(), {"label": "Mode"})
+        modes = [str(m) for m in attrs.get("hvac_modes") or [] if m]
+        if modes:
+            out["hvac_mode"] = (None if unavailable else state, {"writable": True, "options": modes, "label": "Mode"})
+        out["hvac_action"] = (None if unavailable else attrs.get("hvac_action"), {"label": "Running"})
+        feats = int(_num(attrs.get("supported_features")) or 0)
+        lo, hi = c("min_temp"), c("max_temp")
+        rng = {"writable": True, "unit": "°C", "min": lo if lo is not None else 7, "max": hi if hi is not None else 35, "step": 0.5}
+        if feats & 1 or "temperature" in attrs:                 # TARGET_TEMPERATURE: one setpoint (heat or cool)
+            out["target_temperature"] = (c("temperature"), {**rng, "label": "Set to"})
+        if feats & 2 or "target_temp_low" in attrs:             # TARGET_TEMPERATURE_RANGE: heat_cool / auto
+            out["heat_setpoint"] = (c("target_temp_low"), {**rng, "label": "Heat to"})
+            out["cool_setpoint"] = (c("target_temp_high"), {**rng, "label": "Cool to"})
+        if attrs.get("fan_modes"):
+            out["fan_mode"] = (attrs.get("fan_mode"), {"writable": True, "options": [str(m) for m in attrs["fan_modes"]], "label": "Fan"})
     elif domain == "weather":
         tu = attrs.get("temperature_unit")
         for k, name in (("temperature", "temperature"), ("apparent_temperature", "feels_like")):
@@ -321,6 +344,9 @@ def nut_vars(states: dict[str, tuple[Any, dict]]) -> dict[str, str]:
             out["ups.status"] = " ".join(f for f in flags if f)
     return out
 
+
+SHADE_CLASSES = {"blind", "shade", "curtain", "awning", "shutter"}
+SHADE_HINT = re.compile(r"blind|shade|curtain|drape|awning|shutter|roller", re.I)
 
 SERVICE = {  # (domain, capability, value) -> (service domain, service, data)
     "lock": lambda v: ("lock", "lock" if v == "lock" else "unlock", {}),
@@ -511,7 +537,20 @@ class HomeAssistantAdapter(Adapter):
         return msg
 
     # ---------------- import ----------------
+    temp_unit = "°C"           # Home Assistant's unit system (get_config): climate attributes use it
+
+    def _attrs(self, eid: str, attrs: dict | None) -> dict:
+        attrs = attrs or {}
+        if eid.startswith(("climate.", "water_heater.")) and not attrs.get("temperature_unit"):
+            return {**attrs, "temperature_unit": self.temp_unit}
+        return attrs
+
     async def _load(self):
+        try:
+            conf = await self._send({"type": "get_config"})
+            self.temp_unit = str(((conf or {}).get("unit_system") or {}).get("temperature") or "°C")
+        except Exception as e:  # noqa: BLE001
+            self.log.debug("get_config failed: %s", e)
         areas = await self._send({"type": "config/area_registry/list"})
         devs = await self._send({"type": "config/device_registry/list"})
         ents = await self._send({"type": "config/entity_registry/list"})
@@ -531,7 +570,7 @@ class HomeAssistantAdapter(Adapter):
             eid = st.get("entity_id", "")
             if not self._wanted(eid):
                 continue
-            mapped = map_entity(eid, st.get("state"), st.get("attributes") or {})
+            mapped = map_entity(eid, st.get("state"), self._attrs(eid, st.get("attributes")))
             if not mapped and not self._nut_var(eid):          # NUT's "Status data" is text
                 continue
             reg = self.registry.get(eid) or {}
@@ -642,7 +681,7 @@ class HomeAssistantAdapter(Adapter):
                 outlet = outlet or (st.get("attributes") or {}).get("device_class") == "outlet"
             elif dom == "light":
                 has_light = True
-            mapped = map_entity(eid, st.get("state"), st.get("attributes") or {}) or {}
+            mapped = map_entity(eid, st.get("state"), self._attrs(eid, st.get("attributes"))) or {}
             # A device's extra switches (a Ring camera's Siren, Motion detection, Privacy mode…) are their own
             # controls named after the entity, not the device's "Power" switch.
             extra = self._switch_suffix(eid, st, str(name)) if dom in ("switch", "input_boolean", "siren") else None
@@ -662,7 +701,7 @@ class HomeAssistantAdapter(Adapter):
                     final = f"{cname}_{re.sub(r'[^A-Za-z0-9_]', '_', eid.split('.', 1)[1])[-20:]}"
                 kw = dict(kw)
                 if eid.split(".")[0] in ("light", "switch", "input_boolean", "siren", "lock", "valve", "alarm_control_panel", "fan", "cover") \
-                        and (cname in ("light", "switch", "lock", "valve", "alarm_panel", "brightness", "color_temp", "color", "fan_speed", "action")
+                        and (cname in ("light", "switch", "lock", "valve", "alarm_panel", "brightness", "color_temp", "color", "fan_speed", "action", "position")
                              or cname.startswith("switch_")):
                     kw["writable"] = True
                 label = (st.get("attributes") or {}).get("friendly_name")
@@ -700,8 +739,8 @@ class HomeAssistantAdapter(Adapter):
             elif doms & APPLIANCE_DOMAINS or APPLIANCE_HINT.search(f"{name} {devreg.get('model') or ''}"):
                 kind = "appliance"
         # doors vs windows: Home Assistant's device class decides which page a contact sensor goes on
-        dcs = {(x.get("attributes") or {}).get("device_class") for x in sts if x["entity_id"].startswith("binary_sensor.")}
-        opening = "window" if "window" in dcs else "door" if dcs & {"door", "garage_door"} else None
+        dcs = {(x.get("attributes") or {}).get("device_class") for x in sts if x["entity_id"].startswith(("binary_sensor.", "cover."))}
+        opening = "window" if "window" in dcs or "shade" in caps else "door" if dcs & {"door", "garage_door", "gate"} else None
         if kind in ("appliance", "vehicle", "network"):
             # An appliance's "opening" (a water heater's shutoff valve, an oven or washer door) or a car's doors aren't
             # the house's doors: keep them as readings, out of Doors and Security
@@ -728,8 +767,10 @@ class HomeAssistantAdapter(Adapter):
         room = self._area_name(first["entity_id"]) or ((self.areas.get(devreg.get("area_id"))) if devreg else None)
         self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps))
         attrs = {"ha_entities": [s["entity_id"] for s in sts][:40]}
-        if opening and "contact" in caps:
+        if opening and ("contact" in caps or "shade" in caps):
             attrs["opening"] = opening
+        if "shade" in caps and kind is None:
+            kind = "shade"
         if kind:
             attrs["kind"] = kind
         if kind == "weather":
@@ -759,7 +800,7 @@ class HomeAssistantAdapter(Adapter):
             self.hub.set_attributes(did, {"nut_vars": nv})
             self.hub.set_values(did, parse_status(nv), online=ns.get("state") != "unavailable")
             return
-        mapped = map_entity(eid, ns.get("state"), ns.get("attributes") or {}) or {}
+        mapped = map_entity(eid, ns.get("state"), self._attrs(eid, ns.get("attributes"))) or {}
         names = self.entity_caps.get(eid, [])
         vals = {}
         for (cname, (v, _kw)), final in zip(mapped.items(), names):
@@ -827,6 +868,27 @@ class HomeAssistantAdapter(Adapter):
             return None if rest.lower() in ("", "switch", "power", "outlet", "plug", "relay") else rest
         return None
 
+    def _climate_temps(self, device: Device, capability: str, value: Any) -> dict:
+        """climate.set_temperature data for one changed setpoint (°C from Haven). A range thermostat always gets
+        both ends, kept at least 1.5 °C apart (most thermostats refuse a narrower gap)."""
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            raise ValueError("temperature must be a number") from None
+        cp = device.capabilities[capability]
+        if cp.min is not None and cp.max is not None:
+            v = max(float(cp.min), min(float(cp.max), v))
+        u = self.temp_unit
+        if capability == "target_temperature":
+            return {"temperature": _ha_temp(v, u)}
+        heat = device.capabilities.get("heat_setpoint")
+        cool = device.capabilities.get("cool_setpoint")
+        lo = v if capability == "heat_setpoint" else (heat.value if heat and heat.value is not None else v - 2)
+        hi = v if capability == "cool_setpoint" else (cool.value if cool and cool.value is not None else v + 2)
+        if hi - lo < 1.5:
+            lo, hi = (hi - 1.5, hi) if capability == "cool_setpoint" else (lo, lo + 1.5)
+        return {"target_temp_low": _ha_temp(lo, u), "target_temp_high": _ha_temp(hi, u)}
+
     async def command(self, device: Device, capability: str, value: Any):
         eid = self.cap_entity.get((device.id, capability))
         if not eid or self.ws is None:
@@ -849,12 +911,26 @@ class HomeAssistantAdapter(Adapter):
             sdomain, service, data = "light", "turn_on", {"rgb_color": [int(h[i:i + 2], 16) for i in (0, 2, 4)]}
         elif capability == "fan_speed":
             sdomain, service, data = "fan", "set_percentage", {"percentage": max(0, min(100, int(value)))}
+        elif domain == "climate" and capability in ("hvac_mode", "fan_mode"):
+            opts = device.capabilities[capability].options or []
+            if value not in opts:
+                raise ValueError(f"{capability} must be one of {', '.join(opts)}")
+            sdomain, service, data = "climate", f"set_{capability}", {capability: value}
+        elif domain == "climate" and capability in ("target_temperature", "heat_setpoint", "cool_setpoint"):
+            sdomain, service, data = "climate", "set_temperature", self._climate_temps(device, capability, value)
+        elif capability == "position" and domain == "cover":
+            sdomain, service, data = "cover", "set_cover_position", {"position": max(0, min(100, int(float(value))))}
         elif capability == "action" and domain == "cover":
             sdomain, service = "cover", {"open": "open_cover", "close": "close_cover", "stop": "stop_cover"}[value]
         else:
             raise ValueError(f"{capability} can't be controlled")
         await self._send({"type": "call_service", "domain": sdomain, "service": service,
                           "target": {"entity_id": eid}, "service_data": data}, timeout=20)
+
+
+def _ha_temp(c: float, unit: str) -> float:
+    """°C (Haven) to Home Assistant's unit: whole °F, or °C to the half degree."""
+    return round(c * 9 / 5 + 32) if unit.upper().endswith("F") else round(c * 2) / 2
 
 
 def _as_list(v: Any) -> list[str]:

@@ -136,7 +136,12 @@
     <div class="field-label">Rooms</div><div class="chipset" id="pick-rooms"></div>
     <div class="field-label">Types</div><div class="chipset" id="pick-types"></div>
     <div class="field-label">Brands</div><div class="chipset" id="pick-sources"></div>
-    <div class="field-label">Pick devices by hand</div><div class="devpick" id="pick-devices"></div>
+    <div class="field-label">Name contains <small class="muted">any of these words, e.g. “bedroom, lamp” (devices added later match too)</small></div>
+    <label class="textfield"><input id="view-keywords" placeholder=" " maxlength="200" autocomplete="off"><span>Keywords, separated by commas</span></label>
+    <div class="field-label">Pick devices by hand</div>
+    <div class="devpick-bar"><label class="textfield sm"><input id="view-devsearch" type="search" placeholder=" " autocomplete="off"><span>Find by name, room or brand</span></label>
+      <button type="button" class="text-btn" id="view-pickall">Pick all shown</button></div>
+    <div class="devpick" id="pick-devices"></div>
     <div class="vcount" id="view-count"></div>
     <div class="dlg-actions"><button type="button" class="text-btn danger" id="view-delete">Delete view</button><span style="flex:1"></span>
       <button class="text-btn" value="cancel" formnovalidate>Cancel</button><button class="text-btn" value="save">Save</button></div>

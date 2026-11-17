@@ -823,6 +823,66 @@ class History:
             out["clamped"] = res["clamped"]
         return out
 
+    async def power_history(self, devices: list, range_name: str = "24h", start: Any = None, end: Any = None,
+                            buckets: int = 120) -> dict:
+        """The Power page's trend: every device reporting `power` (watts), on one shared time axis.
+        Each device's readings are averaged into `buckets` equal slices; a slice with no reading carries the last
+        known value forward (a plug at 0 W often reports nothing new). `total` sums the devices slice by slice;
+        energy (kWh) is the area under each curve. Shape: {range, start, end, bucket, t, devices, total, total_kwh,
+        peak, average}; devices sorted by energy, highest first."""
+        res_start = res_end = None
+        rows = []
+        for dev in devices:
+            res = await self.query_many(dev.id, ["power"], range_name, start, end)
+            res_start, res_end = res["start"], res["end"]
+            pts = [p for p in res["series"]["power"] if isinstance(p.get("v"), (int, float))]
+            rows.append((dev, pts))
+        if res_start is None:
+            name, res_start, res_end, _ = self.window(range_name, start, end)
+        name = "custom" if start not in (None, "") else (range_name if range_name in RANGES or range_name == LIVE_RANGE else "24h")
+        n = max(2, int(buckets))
+        width = (res_end - res_start) / n
+        times = [round(res_start + width * (i + 0.5), 3) for i in range(n)]
+        out_devs, total = [], [None] * n
+        for dev, pts in rows:
+            sums, counts = [0.0] * n, [0] * n
+            before = None                       # last reading before the window: the starting value
+            for p in pts:
+                t, v = p["t"], float(p["v"])
+                if t < res_start:
+                    before = v
+                    continue
+                i = min(n - 1, int((t - res_start) / width)) if width > 0 else 0
+                sums[i] += v
+                counts[i] += 1
+            series, last = [], before
+            for i in range(n):
+                if counts[i]:
+                    last = sums[i] / counts[i]
+                series.append(None if last is None else round(last, 1))
+            cap = dev.capabilities.get("power")
+            now_v = cap.value if cap is not None and isinstance(cap.value, (int, float)) else None
+            if now_v is not None and dev.online and not pts:
+                series = [round(float(now_v), 1)] * n       # nothing new in the window: it held its current value
+            elif now_v is not None and dev.online and series[-1] is None:
+                series[-1] = round(float(now_v), 1)
+            known = [v for v in series if v is not None]
+            kwh = sum(known) * width / 3600 / 1000
+            for i, v in enumerate(series):
+                if v is not None:
+                    total[i] = (total[i] or 0) + v
+            out_devs.append({"id": dev.id, "name": dev.name, "room": dev.room, "kind": dev.attributes.get("kind"),
+                             "online": dev.online, "now": now_v, "points": series,
+                             "average": round(sum(known) / len(known), 1) if known else None,
+                             "peak": round(max(known), 1) if known else None, "kwh": round(kwh, 3)})
+        out_devs.sort(key=lambda d: (-d["kwh"], d["name"].lower()))
+        tot = [None if v is None else round(v, 1) for v in total]
+        tk = [v for v in tot if v is not None]
+        return {"range": name, "start": round(res_start, 3), "end": round(res_end, 3), "bucket": round(width, 3),
+                "t": times, "devices": out_devs, "total": tot,
+                "total_kwh": round(sum(d["kwh"] for d in out_devs), 3),
+                "peak": max(tk) if tk else None, "average": round(sum(tk) / len(tk), 1) if tk else None}
+
     def _kind(self, device_id: str, cap: str, stored: str | None) -> str:
         """"state" (timeline) or "number" (line chart): from the stored binary flag, else the current value."""
         if stored:

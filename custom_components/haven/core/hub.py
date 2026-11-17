@@ -35,7 +35,7 @@ _VIEW_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
 
 def _clean_view(v: dict) -> dict:
     """A custom view: name + icon + rules. A device matches if hand-picked, or if it passes every
-    non-empty rule (rooms, types, sources). Anything of the wrong type is dropped, never a 500."""
+    non-empty rule (rooms, types, sources, name keywords: any of them). Anything of the wrong type is dropped, never a 500."""
     def lst(k, n=200):
         val = v.get(k)
         if not isinstance(val, list):
@@ -51,7 +51,8 @@ def _clean_view(v: dict) -> dict:
     if not _VIEW_ID.fullmatch(vid):      # ids end up in URLs and element ids: keep them to a safe alphabet
         vid = "v" + secrets.token_hex(6)
     return {"id": vid, "name": text("name", "View"), "icon": text("icon", "dashboard"),
-            "rooms": lst("rooms"), "types": lst("types", 20), "sources": lst("sources", 20), "devices": lst("devices")}
+            "rooms": lst("rooms"), "types": lst("types", 20), "sources": lst("sources", 20), "devices": lst("devices"),
+            "keywords": [k[:40].strip() for k in lst("keywords", 20) if k.strip()]}
 
 
 def _write_json(path, data) -> None:
@@ -80,7 +81,7 @@ class SaveError(HTTPException):
 _SAFE_CAP = re.compile(r"[A-Za-z0-9_]{1,64}")
 
 
-HOME_FLAGS = ("weather", "station", "climate", "aqi_outdoor", "aqi_indoor", "forecast", "favorites", "rooms", "greeting")
+HOME_FLAGS = ("weather", "station", "climate", "thermostat", "aqi_outdoor", "aqi_indoor", "forecast", "favorites", "rooms", "greeting")
 
 
 def _clean_home(h) -> dict | None:

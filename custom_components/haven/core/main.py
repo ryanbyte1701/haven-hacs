@@ -436,6 +436,20 @@ async def device_history(device_id: str, range: str = "24h", start: str | None =
         raise HTTPException(400, str(e)) from None
 
 
+@app.get("/api/power/history")
+async def power_history(range: str = "24h", start: str | None = None, end: str | None = None,  # noqa: A002
+                        buckets: int = 120):
+    """Power page trend: every visible device reporting watts on one time axis, per device and in total, plus
+    the energy each used over the range (kWh). Same `range` / `start` + `end` rules as device history."""
+    devs = [d for d in hub.devices.values() if not d.hidden and "power" in d.capabilities
+            and isinstance(d.capabilities["power"].value, (int, float, type(None)))
+            and not isinstance(d.capabilities["power"].value, bool)]
+    try:
+        return await history_store.power_history(devs, range, start=start, end=end, buckets=max(12, min(buckets, 300)))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @app.get("/api/devices/{device_id}/history/{capability}")
 async def history(device_id: str, capability: str, range: str = "24h", start: str | None = None,  # noqa: A002
                   end: str | None = None):
@@ -462,7 +476,7 @@ async def command(device_id: str, cmd: Command):
     return {"ok": True}
 
 
-TAB_IDS = {"climate", "lights", "water", "doors", "security", "controls"}
+TAB_IDS = {"climate", "lights", "water", "doors", "windows", "security", "controls", "switches", "appliances"}   # app.js TABS
 
 
 class DevicePatch(BaseModel):
