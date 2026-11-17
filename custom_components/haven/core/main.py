@@ -470,14 +470,14 @@ async def command(device_id: str, cmd: Command):
     try:
         await hub.command(device_id, cmd.capability, cmd.value)
     except (KeyError, ValueError) as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
         log.exception("command failed")
-        raise HTTPException(502, f"device error: {sec.redact(e, manager.secrets())}")
+        raise HTTPException(502, f"device error: {sec.redact(e, manager.secrets())}") from e
     return {"ok": True}
 
 
-TAB_IDS = {"climate", "lights", "water", "doors", "windows", "security", "controls", "switches", "appliances"}   # app.js TABS
+TAB_IDS = {"climate", "lights", "water", "doors", "windows", "security", "controls", "switches", "appliances"}   # app/static/js/01-core.js TABS
 
 
 class DevicePatch(BaseModel):
@@ -548,7 +548,7 @@ async def put_settings(section: str, body: SectionSave):
     try:
         settings_mod.save_section(section, body.enabled, body.values)
     except (ValueError, TypeError) as e:
-        raise HTTPException(400, f"invalid value: {e}")
+        raise HTTPException(400, f"invalid value: {e}") from e
     if section == "history":   # not an adapter: reconfigure the history store in place
         manager.cfg = settings_mod.effective_config()
         await history_store.configure(manager.cfg.get("history"))
@@ -578,7 +578,7 @@ async def ring_login(body: RingLogin):
     try:
         res = await login(body.email, body.password, body.code)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"Ring sign-in failed: {sec.redact(e)}")
+        raise HTTPException(400, f"Ring sign-in failed: {sec.redact(e)}") from e
     if res.get("ok") and "ring" in hub.adapters:
         await manager.restart("ring")
     return res
@@ -599,7 +599,7 @@ async def aqara_login(body: AqaraLogin):
             return {"need_code": True}
         await exchange_code(cfg, body.account, body.code)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"Aqara sign-in failed: {sec.redact(e)}")
+        raise HTTPException(400, f"Aqara sign-in failed: {sec.redact(e)}") from e
     if "aqara" in hub.adapters:
         await manager.restart("aqara")
     return {"ok": True}
@@ -627,7 +627,7 @@ async def hue_pair(body: HuePair):
         why = str(e).split("\nFor more information", 1)[0] or type(e).__name__     # drop httpx's link to MDN
         if " 403 " in why or "403 Forbidden" in why:
             why = "the address answered 403 Forbidden: is it really the Hue Bridge? Check its IP in the Hue app"
-        raise HTTPException(400, f"Couldn't pair with the Hue Bridge at {host}: {sec.redact(why)}")
+        raise HTTPException(400, f"Couldn't pair with the Hue Bridge at {host}: {sec.redact(why)}") from e
     if res.get("ok"):
         settings_mod.save_section("hue", True, {"host": host})
         await manager.restart("hue")
@@ -643,9 +643,9 @@ async def settings_action(section: str, name: str):
     try:
         return {"ok": True, "message": await a.action(name)}
     except ValueError:
-        raise HTTPException(404, "unknown action")
+        raise HTTPException(404, "unknown action") from None
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, sec.redact(e, manager.secrets()))
+        raise HTTPException(400, sec.redact(e, manager.secrets())) from e
 
 
 @app.post("/api/settings/{section}/signin")
@@ -662,7 +662,7 @@ async def generic_signin(section: str, body: dict):
     except Exception as e:  # noqa: BLE001
         why = str(e) or (f"couldn't reach the service ({type(e).__name__}). Check that the NAS can reach the internet."
                          if "network" in type(e).__name__.lower() or isinstance(e, OSError) else type(e).__name__)
-        raise HTTPException(400, f"Sign-in failed: {sec.redact(why, manager.secrets())}")
+        raise HTTPException(400, f"Sign-in failed: {sec.redact(why, manager.secrets())}") from e
     if res.get("ok") and section in hub.adapters:
         await manager.restart(section)
     return res
@@ -718,7 +718,7 @@ async def create_automation(body: AutomationIn):
     try:
         return _engine().upsert(data)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @app.put("/api/automations/{aid}")
@@ -729,7 +729,7 @@ async def update_automation(aid: str, body: AutomationIn):
     try:
         return eng.upsert({**body.model_dump(), "id": aid})
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @app.delete("/api/automations/{aid}")

@@ -95,7 +95,7 @@ def parse_open_meteo(data: dict, now: float | None = None) -> dict:
     observed = _num(cur.get("time"))
     hourly = data.get("hourly") or {}
     times, aqis = hourly.get("time") or [], hourly.get("us_aqi") or []
-    forecast = [{"t": int(t), "aqi": int(round(a))} for t, a in zip(times, aqis)
+    forecast = [{"t": int(t), "aqi": int(round(a))} for t, a in zip(times, aqis, strict=False)
                 if _num(a) is not None and _num(t) is not None and now - 3600 <= float(t) <= now + 24 * 3600]
     return {"values": values, "units": units, "labels": labels, "dominant": dominant,
             "observed": int(observed) if observed else None, "forecast": forecast}
@@ -240,7 +240,7 @@ class AirQualityAdapter(Adapter):
         data = await (self.fetch_airnow() if self.provider == "airnow" else self.fetch_open_meteo())
         place = data.get("place") or self.zip
         caps = {}
-        for capname, v in data["values"].items():
+        for capname in data["values"]:
             caps[capname] = cap(capname, unit=data["units"].get(capname), label=data["labels"].get(capname))
         caps["status_text"] = cap("status_text")
         dev = self.hub.devices.get(self.did)

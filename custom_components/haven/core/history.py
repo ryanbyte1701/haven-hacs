@@ -520,6 +520,38 @@ class SqliteStore:
                          max_points: int = MAX_POINTS, flush: bool = True) -> dict[str, Result]:
         return await self._run(self._query_many, device_id, list(caps), start, end, max_points, flush)
 
+    def _bucketed(self, device_ids: list[str], cap: str, start: float, end: float, n: int) -> dict:
+        """One capability of many devices, averaged into `n` equal slices in one query (the Power page).
+        {device: ([avg or None] * n, last value before start or None)}; devices without numbers are left out."""
+        try:
+            self.flush()
+        except Exception as e:  # noqa: BLE001 - reading still works; the flush loop reports the error
+            log.debug("history flush before query failed: %s", e)
+        width = max((end - start) / n, 1e-6)
+        out: dict[str, tuple[list, float | None]] = {}
+        with self._lock:
+            if not self._db or not device_ids:
+                return out
+            for i in range(0, len(device_ids), 500):          # SQLite's limit on ? per statement
+                ids = device_ids[i:i + 500]
+                marks = ",".join("?" * len(ids))
+                for dev, b, v in self._db.execute(
+                        f"SELECT device, CAST((ts - ?) / ? AS INTEGER), AVG(v) FROM samples "  # noqa: S608 - only ? marks
+                        f"WHERE cap=? AND binary=0 AND device IN ({marks}) AND ts>=? AND ts<=? GROUP BY 1, 2",
+                        (start, width, cap, *ids, start, end)):
+                    row = out.setdefault(dev, ([None] * n, None))[0]
+                    row[min(n - 1, max(0, int(b)))] = v
+                for dev, v in self._db.execute(
+                        f"SELECT s.device, s.v FROM samples s WHERE s.cap=? AND s.binary=0 AND s.device IN ({marks}) "  # noqa: S608
+                        "AND s.ts=(SELECT MAX(ts) FROM samples WHERE device=s.device AND cap=s.cap AND ts<?)",
+                        (cap, *ids, start)):
+                    vals, _ = out.get(dev, ([None] * n, None))
+                    out[dev] = (vals, v)
+        return out
+
+    async def bucketed(self, device_ids: list[str], cap: str, start: float, end: float, n: int) -> dict:
+        return await self._run(self._bucketed, list(device_ids), cap, start, end, n)
+
     async def query(self, device_id: str, cap: str, start: float, end: float, max_points: int = MAX_POINTS) -> list[dict]:
         return (await self.query_many(device_id, [cap], start, end, max_points))[cap][0]
 
@@ -830,36 +862,47 @@ class History:
         known value forward (a plug at 0 W often reports nothing new). `total` sums the devices slice by slice;
         energy (kWh) is the area under each curve. Shape: {range, start, end, bucket, t, devices, total, total_kwh,
         peak, average}; devices sorted by energy, highest first."""
-        res_start = res_end = None
-        rows = []
-        for dev in devices:
-            res = await self.query_many(dev.id, ["power"], range_name, start, end)
-            res_start, res_end = res["start"], res["end"]
-            pts = [p for p in res["series"]["power"] if isinstance(p.get("v"), (int, float))]
-            rows.append((dev, pts))
-        if res_start is None:
-            name, res_start, res_end, _ = self.window(range_name, start, end)
-        name = "custom" if start not in (None, "") else (range_name if range_name in RANGES or range_name == LIVE_RANGE else "24h")
+        name, res_start, res_end, _ = self.window(range_name, start, end)
         n = max(2, int(buckets))
         width = (res_end - res_start) / n
         times = [round(res_start + width * (i + 0.5), 3) for i in range(n)]
-        out_devs, total = [], [None] * n
-        for dev, pts in rows:
-            sums, counts = [0.0] * n, [0] * n
-            before = None                       # last reading before the window: the starting value
-            for p in pts:
+        ckey = ("power", tuple(sorted(d.id for d in devices)), name if name != "custom" else (round(res_start), round(res_end)), n)
+        hit = self._cache.get(ckey)
+        if hit and hit[0] > time.time():
+            return hit[1]
+        # the slices of every device: one query when the store can (SQLite); otherwise device by device
+        sliced: dict = {}
+        if hasattr(self.store, "bucketed"):
+            try:
+                sliced = await self.store.bucketed([d.id for d in devices], "power", res_start, res_end, n)
+            except Exception as e:  # noqa: BLE001 - fall back to reading device by device
+                log.warning("power history query failed: %s", e)
+        rows = []
+        for dev in devices:
+            if dev.id in sliced and any(v is not None for v in sliced[dev.id][0]):
+                rows.append((dev, sliced[dev.id]))
+                continue
+            res = await self.query_many(dev.id, ["power"], range_name, start, end)   # memory / Prometheus / filling up
+            sums, counts, before = [0.0] * n, [0] * n, None
+            for p in res["series"]["power"]:
+                if not isinstance(p.get("v"), (int, float)) or isinstance(p.get("v"), bool):
+                    continue
                 t, v = p["t"], float(p["v"])
                 if t < res_start:
                     before = v
                     continue
-                i = min(n - 1, int((t - res_start) / width)) if width > 0 else 0
-                sums[i] += v
-                counts[i] += 1
-            series, last = [], before
-            for i in range(n):
-                if counts[i]:
-                    last = sums[i] / counts[i]
+                k = min(n - 1, int((t - res_start) / width)) if width > 0 else 0
+                sums[k] += v
+                counts[k] += 1
+            rows.append((dev, ([sums[k] / counts[k] if counts[k] else None for k in range(n)], before)))
+        out_devs, total = [], [None] * n
+        for dev, (avgs, before) in rows:
+            series, last = [], before          # a slice without readings holds the last known value
+            for v in avgs:
+                if v is not None:
+                    last = v
                 series.append(None if last is None else round(last, 1))
+            pts = [v for v in avgs if v is not None]
             cap = dev.capabilities.get("power")
             now_v = cap.value if cap is not None and isinstance(cap.value, (int, float)) else None
             if now_v is not None and dev.online and not pts:
@@ -878,10 +921,12 @@ class History:
         out_devs.sort(key=lambda d: (-d["kwh"], d["name"].lower()))
         tot = [None if v is None else round(v, 1) for v in total]
         tk = [v for v in tot if v is not None]
-        return {"range": name, "start": round(res_start, 3), "end": round(res_end, 3), "bucket": round(width, 3),
-                "t": times, "devices": out_devs, "total": tot,
-                "total_kwh": round(sum(d["kwh"] for d in out_devs), 3),
-                "peak": max(tk) if tk else None, "average": round(sum(tk) / len(tk), 1) if tk else None}
+        out = {"range": name, "start": round(res_start, 3), "end": round(res_end, 3), "bucket": round(width, 3),
+               "t": times, "devices": out_devs, "total": tot,
+               "total_kwh": round(sum(d["kwh"] for d in out_devs), 3),
+               "peak": max(tk) if tk else None, "average": round(sum(tk) / len(tk), 1) if tk else None}
+        self._cache[ckey] = (time.time() + max(CACHE_MIN_TTL, min(width / 2, 60)), out)
+        return out
 
     def _kind(self, device_id: str, cap: str, stored: str | None) -> str:
         """"state" (timeline) or "number" (line chart): from the stored binary flag, else the current value."""

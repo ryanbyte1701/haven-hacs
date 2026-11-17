@@ -155,7 +155,7 @@ async def change_my_password(body: PasswordChange, request: Request):
         # name and password in one save: a failure (taken name, unwritable config folder) changes nothing
         name = auth.store.update_user(p["user"], password=body.new, new_name=(body.username or "").strip() or None)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return _session(name, auth.store.users[name]["role"])   # every other device was signed out; this one stays
 
 
@@ -174,7 +174,7 @@ async def add_user(body: NewUser):
     try:
         auth.store.create_user(body.name or body.username, body.password, body.role)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return _users_view()
 
 
@@ -185,7 +185,7 @@ async def patch_user(name: str, body: UserPatch):
     try:
         auth.store.update_user(name, password=body.password, role=body.role)   # all or nothing
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return _users_view()
 
 
@@ -196,7 +196,7 @@ async def delete_user(name: str):
     try:
         auth.store.delete_user(name)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return _users_view()
 
 

@@ -119,7 +119,7 @@ def _int(sec: dict, key: str, default: int, lo: int, hi: int, label: str) -> int
     try:
         f = float(v)
     except (TypeError, ValueError):
-        raise ValueError(f"{label}: not a number")
+        raise ValueError(f"{label}: not a number") from None
     if f != int(f) or not lo <= f <= hi:
         raise ValueError(f"{label}: use a whole number from {lo} to {hi}")
     return int(f)
@@ -144,7 +144,7 @@ class HAConfig:
         try:
             vip = ipaddress.IPv4Address(str(sec.get("vip") or "").strip())
         except ValueError:
-            raise ValueError("Virtual IP: enter an IPv4 address such as 192.168.1.50")
+            raise ValueError("Virtual IP: enter an IPv4 address such as 192.168.1.50") from None
         self.prefix = _int(sec, "prefix", 24, 8, 32, "Prefix length")
         net = ipaddress.IPv4Network(f"{vip}/{self.prefix}", strict=False)
         if vip.is_loopback or vip.is_multicast or vip.is_unspecified or vip.is_link_local or vip.is_reserved:
@@ -1117,7 +1117,7 @@ class HAManager:
                     if await self._post("/api/ha/peer/yield", {}) is None:
                         raise RuntimeError(self.problem_text())
                 except Exception as e:  # noqa: BLE001
-                    raise HTTPException(502, f"The other Haven didn't hand over: {e}")
+                    raise HTTPException(502, f"The other Haven didn't hand over: {e}") from e
             self._event(self.state, self.state, "takeover requested")
             self.kick()
             return self.status()
@@ -1352,7 +1352,7 @@ async def _save_ha(m: "HAManager", values: dict) -> None:
     try:
         m.write_section(values)
     except (ValueError, TypeError) as e:
-        raise HTTPException(400, f"invalid value: {e}")
+        raise HTTPException(400, f"invalid value: {e}") from e
     if m.on_settings_saved:
         m.on_settings_saved()
     await m.configure(m.read_section())
@@ -1363,7 +1363,7 @@ async def adopt_as_standby(m: "HAManager", body: AdoptIn) -> Any:
     try:
         parse_peer(body.peer)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     if cur.get("enabled") and cur.get("peer") and not same_peer(str(cur.get("peer")), body.peer) and not body.force:
         return JSONResponse({"detail": f"This Haven is already paired with {cur.get('peer')}. Replace that pairing?",
                              "needs_confirm": True, "current_peer": str(cur.get("peer"))}, status_code=409)
@@ -1379,7 +1379,7 @@ async def adopt_backup(m: "HAManager", body: AdoptBackupIn) -> Any:
     try:
         backup_url = parse_peer(body.backup)
     except ValueError as e:
-        raise HTTPException(400, str(e).replace("Other Haven's address", "Backup address"))
+        raise HTTPException(400, str(e).replace("Other Haven's address", "Backup address")) from e
     vip = (body.vip or cur.get("vip") or "").strip()
     if not vip:
         raise HTTPException(400, "Enter the virtual IP address both Havens will share")
@@ -1389,7 +1389,7 @@ async def adopt_backup(m: "HAManager", body: AdoptBackupIn) -> Any:
         if parse_peer(my_address) == backup_url:
             raise HTTPException(400, "The backup's address is this Haven's own address: enter the other NAS's IP")
     except ValueError as e:
-        raise HTTPException(400, str(e).replace("Other Haven's address", "This Haven's address"))
+        raise HTTPException(400, str(e).replace("Other Haven's address", "This Haven's address")) from e
     secret = str(cur.get("secret") or "")
     generated = len(secret) < MIN_SECRET
     if generated:
@@ -1400,14 +1400,14 @@ async def adopt_backup(m: "HAManager", body: AdoptBackupIn) -> Any:
     try:
         HAConfig({"enabled": True, "role": "primary", "peer": body.backup, "secret": secret, "vip": vip, "prefix": prefix})
     except ValueError as e:
-        raise HTTPException(400, str(e))
-    async with httpx.AsyncClient(verify=False, trust_env=False, follow_redirects=False, timeout=10) as c:
+        raise HTTPException(400, str(e)) from e
+    async with httpx.AsyncClient(verify=False, trust_env=False, follow_redirects=False, timeout=10) as c:  # noqa: S501 - see the comment below
         # verify=False: a backup on https:// usually has Haven's self-signed certificate (documented)
         try:
             r = await c.post(backup_url + "/api/auth/login", json={"username": body.username, "password": body.password})
         except httpx.HTTPError as e:
             raise HTTPException(502, f"Can't reach the backup at {body.backup}: {type(e).__name__}. Check the address, "
-                                     "that Haven runs there, and port 1701.")
+                                     "that Haven runs there, and port 1701.") from e
         if r.status_code == 401:
             raise HTTPException(400, "The backup rejected that username or password")
         if r.status_code == 404:
@@ -1419,7 +1419,7 @@ async def adopt_backup(m: "HAManager", body: AdoptBackupIn) -> Any:
         try:
             r = await c.post(backup_url + "/api/ha/adopt", json=payload, headers=h)
         except httpx.HTTPError as e:
-            raise HTTPException(502, f"The backup stopped answering: {type(e).__name__}")
+            raise HTTPException(502, f"The backup stopped answering: {type(e).__name__}") from e
         finally:
             try:
                 await c.post(backup_url + "/api/auth/logout", headers=h)
@@ -1483,7 +1483,7 @@ def build_router(get: Callable[[], HAManager]) -> APIRouter:
         try:
             info = json.loads(body or b"{}")
         except ValueError:
-            raise HTTPException(400, "bad heartbeat")
+            raise HTTPException(400, "bad heartbeat") from None
         return m.signed(await m.on_heartbeat(info if isinstance(info, dict) else {}), nonce)
 
     @r.get("/api/ha/peer/config")

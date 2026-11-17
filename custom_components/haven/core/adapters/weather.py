@@ -73,7 +73,7 @@ def parse_forecast(data: dict, imperial: bool) -> dict:
     for i, t in enumerate(d.get("time") or []):
         def at(key):
             arr = d.get(key) or []
-            return arr[i] if i < len(arr) else None
+            return arr[i] if i < len(arr) else None  # noqa: B023 - called right away, inside the loop
         t_text, t_kind = condition(at("weather_code"))
         days.append({"t": t, "text": t_text, "icon": t_kind, "hi": _num(at("temperature_2m_max")),
                      "lo": _num(at("temperature_2m_min")), "pop": _num(at("precipitation_probability_max")),

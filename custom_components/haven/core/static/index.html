@@ -159,7 +159,18 @@
 </dialog>
 <script src="/static/sortable.min.js"></script>
 <script src="/static/accounts.js"></script>
-<script src="/static/app.js"></script>
+<!-- the dashboard: parts loaded in order, sharing one scope (app/static/js/01-core.js explains) -->
+<script src="/static/js/01-core.js"></script>
+<script src="/static/js/02-devices.js"></script>
+<script src="/static/js/03-live.js"></script>
+<script src="/static/js/04-home.js"></script>
+<script src="/static/js/05-pages.js"></script>
+<script src="/static/js/06-settings.js"></script>
+<script src="/static/js/07-render.js"></script>
+<script src="/static/js/08-data.js"></script>
+<script src="/static/js/09-history.js"></script>
+<script src="/static/js/10-interactions.js"></script>
+<script src="/static/js/11-boot.js"></script>
 <script src="/static/automations.js"></script>
 </body>
 </html>

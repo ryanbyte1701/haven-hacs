@@ -122,7 +122,7 @@ class Hub:
     def _load_overrides(self) -> dict:
         try:
             return json.loads(self._overrides_path.read_text())
-        except Exception:
+        except Exception:  # noqa: BLE001 - a missing or broken file means no edits yet
             return {}
 
     # ---------- dashboard layout (room order, device order, favorites) ----------
@@ -131,7 +131,7 @@ class Hub:
             data = json.loads(self._layout_path.read_text())
             return {"rooms": list(data.get("rooms", [])), "order": dict(data.get("order", {})),
                     "pinned": list(data.get("pinned", [])), "views": list(data.get("views", []))}
-        except Exception:
+        except Exception:  # noqa: BLE001 - a missing or broken file means the default layout
             return {"rooms": [], "order": {}, "pinned": [], "views": []}
 
     def set_layout(self, layout: dict) -> dict:

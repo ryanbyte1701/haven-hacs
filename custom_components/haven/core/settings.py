@@ -419,7 +419,7 @@ def save_section(section: str, enabled: bool, values: dict[str, Any]) -> dict:
             try:
                 v = float(v) if "." in str(v) or "e" in str(v).lower() else int(v)
             except (TypeError, ValueError, OverflowError):
-                raise ValueError(f"{f['label']}: not a number")
+                raise ValueError(f"{f['label']}: not a number") from None
             if not math.isfinite(v) or abs(v) > 1e12:
                 raise ValueError(f"{f['label']}: not a number")
         elif f["type"] == "select":

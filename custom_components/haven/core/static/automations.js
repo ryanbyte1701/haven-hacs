@@ -1,5 +1,5 @@
 /* Automations page: a table of "when / if / then" rules plus a plain-language editor.
-   Registers itself through the small page API that app.js exposes as window.Haven. */
+   Registers itself through the small page API that the dashboard (app/static/js/11-boot.js) exposes as window.Haven. */
 (() => {
   const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
   const DAY_LABEL = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };

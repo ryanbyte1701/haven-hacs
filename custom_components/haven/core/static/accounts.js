@@ -1,5 +1,5 @@
 // Sign-in page, the Account page and (admins) Users & access.
-// Loaded before app.js. app.js calls window.HavenAccounts.showLogin() / .render(page, el); the pages use
+// Loaded before the dashboard (app/static/js/), which calls window.HavenAccounts.showLogin() / .render(page, el); the pages use
 // window.Haven (api, icon, esc, snack, confirmAction, me, setToken) at run time.
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
