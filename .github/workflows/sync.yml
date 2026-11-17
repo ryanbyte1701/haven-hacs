@@ -4,6 +4,7 @@
 # Every 30 minutes: build this repository from ryanbyte1701/haven (public, so no secret is needed) with its
 # tools/hacs/build.py. If anything changed, commit it, tag vYYYY.M.D.N (the manifest version) and publish a
 # GitHub release, so HACS offers the update. A source commit whose "HACS edition" CI check failed is skipped.
+# A version that has no release yet (the first one, or after a failed run) gets one.
 name: Sync from Haven
 
 on:
@@ -56,21 +57,28 @@ jobs:
         run: python src/tools/hacs/build.py --source src --out hacs
       - name: Commit, tag and release
         id: publish
-        if: steps.gate.outputs.go == 'true'
         working-directory: hacs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git add -A
-          if git diff --cached --quiet; then echo "Nothing changed"; exit 0; fi
-          git diff --cached --stat
           v=$(python -c 'import json; print(json.load(open("custom_components/haven/manifest.json"))["version"])')
-          sha=$(git -C ../src rev-parse HEAD)
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -m "Haven $v" -m "Built from https://github.com/ryanbyte1701/haven/commit/$sha"
+          git add -A
+          if git diff --cached --quiet; then
+            # nothing new; but a version without its release (the first one, or a failed run) still gets one
+            if git ls-remote --exit-code --tags origin "refs/tags/v$v" > /dev/null; then echo "Nothing changed"; exit 0; fi
+            echo "v$v has no release yet"
+            notes="Haven $v"
+          else
+            git diff --cached --stat
+            sha=$(git -C ../src rev-parse HEAD)
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Haven $v" -m "Built from https://github.com/ryanbyte1701/haven/commit/$sha"
+            git push origin HEAD:main
+            notes="Built from ryanbyte1701/haven@${sha:0:12}: https://github.com/ryanbyte1701/haven/commits/$sha"
+          fi
           git tag "v$v"
-          git push origin HEAD:main "v$v"
-          gh release create "v$v" --title "Haven $v" --notes "Built from ryanbyte1701/haven@${sha:0:12}: https://github.com/ryanbyte1701/haven/commits/$sha"
+          git push origin "v$v"
+          gh release create "v$v" --title "Haven $v" --notes "$notes"
           echo "released=true" >> "$GITHUB_OUTPUT"
 
   validate:
