@@ -76,6 +76,8 @@ jobs:
             git push origin HEAD:main
             notes="Built from ryanbyte1701/haven@${sha:0:12}: https://github.com/ryanbyte1701/haven/commits/$sha"
           fi
+          log=$(python ../src/tools/hacs/build.py --source ../src --release-notes || true)
+          if [ -n "$log" ]; then notes="$log"$'\n\n'"$notes"; fi
           git tag "v$v"
           git push origin "v$v"
           gh release create "v$v" --title "Haven $v" --notes "$notes"
