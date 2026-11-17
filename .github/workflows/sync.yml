@@ -1,0 +1,79 @@
+# GENERATED from ryanbyte1701/haven tools/hacs/repo/.github/workflows (changes to workflow files are pushed by hand:
+# the GITHUB_TOKEN this workflow uses is not allowed to change workflows).
+#
+# Every 30 minutes: build this repository from ryanbyte1701/haven (public, so no secret is needed) with its
+# tools/hacs/build.py. If anything changed, commit it, tag vYYYY.M.D.N (the manifest version) and publish a
+# GitHub release, so HACS offers the update. A source commit whose "HACS edition" CI check failed is skipped.
+name: Sync from Haven
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.publish.outputs.released }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: hacs
+      - uses: actions/checkout@v7
+        with:
+          repository: ryanbyte1701/haven
+          ref: main
+          path: src
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Is the source's HACS build green?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git -C src rev-parse HEAD)
+          if [ ! -f src/tools/hacs/build.py ]; then
+            echo "::notice::ryanbyte1701/haven has no tools/hacs/build.py yet"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          state=$(gh api "repos/ryanbyte1701/haven/commits/$sha/check-runs?check_name=HACS%20edition" \
+                   --jq '[.check_runs[] | .status + ":" + (.conclusion // "")] | first // "none"' || echo "none")
+          echo "HACS edition check for $sha: $state"
+          case "$state" in
+            completed:success|none) echo "go=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::notice::Waiting: the HACS edition check of $sha is $state"; echo "go=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Build
+        if: steps.gate.outputs.go == 'true'
+        run: python src/tools/hacs/build.py --source src --out hacs
+      - name: Commit, tag and release
+        id: publish
+        if: steps.gate.outputs.go == 'true'
+        working-directory: hacs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing changed"; exit 0; fi
+          git diff --cached --stat
+          v=$(python -c 'import json; print(json.load(open("custom_components/haven/manifest.json"))["version"])')
+          sha=$(git -C ../src rev-parse HEAD)
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Haven $v" -m "Built from https://github.com/ryanbyte1701/haven/commit/$sha"
+          git tag "v$v"
+          git push origin HEAD:main "v$v"
+          gh release create "v$v" --title "Haven $v" --notes "Built from ryanbyte1701/haven@${sha:0:12}: https://github.com/ryanbyte1701/haven/commits/$sha"
+          echo "released=true" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: sync
+    if: needs.sync.outputs.released == 'true'
+    uses: ./.github/workflows/validate.yml

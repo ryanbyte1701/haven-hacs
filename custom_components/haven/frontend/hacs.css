@@ -1,0 +1,9 @@
+/* Haven for Home Assistant (GENERATED from ryanbyte1701/haven tools/hacs): hide what Home Assistant does instead. */
+/* Settings → Security (Haven's own users and passwords): Home Assistant's accounts are used */
+html.haven-hacs .lgroup:has([data-open-setting="users"]) { display: none; }
+/* "Accounts are saved on the server in ..." */
+html.haven-hacs .settings-wrap.list .lfoot { display: none; }
+/* view-only banner and its "Sign in" button: there are no view-only accounts */
+html.haven-hacs #viewonly { display: none !important; }
+html.haven-hacs .haven-hacs-account { padding: 8px 0; line-height: 1.5; }
+html.haven-hacs .haven-hacs-account h3 { margin: 0 0 8px; }

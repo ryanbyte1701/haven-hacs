@@ -1,0 +1,31 @@
+# GENERATED from ryanbyte1701/haven tools/hacs/repo/.github/workflows.
+# HACS's repository checks and Home Assistant's hassfest on this repository. Runs daily, by hand, on pushes made
+# by people, and after every sync (pushes made by the sync's GITHUB_TOKEN don't start workflows by themselves).
+name: Validate
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: home-assistant/actions/hassfest@master

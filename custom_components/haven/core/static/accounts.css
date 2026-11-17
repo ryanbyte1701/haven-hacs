@@ -1,0 +1,98 @@
+/* Sign-in page, Account and Users & access pages, and role-based hiding of controls. */
+
+/* ---------- sign-in page ---------- */
+.authpage { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; overflow-y: auto;
+  padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  background: radial-gradient(1200px 600px at 50% -10%, var(--md-primary-container), transparent 70%), var(--md-surface); }
+body.auth-open { overflow: hidden; }
+body.auth-open > :not(.authpage):not(.snackbar):not(dialog) { visibility: hidden; }
+.authcard { width: 100%; max-width: 400px; padding: 32px 24px 24px; border-radius: var(--shape-xl, 28px);
+  background: var(--md-surface-container-low); border: 1px solid var(--md-outline-variant);
+  display: flex; flex-direction: column; box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 8px 24px rgb(0 0 0 / .08); }
+.auth-logo { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; margin: 0 auto 16px;
+  background: var(--md-primary); color: var(--md-on-primary); }
+.auth-logo svg.ic { width: 32px; height: 32px; }
+.auth-logo { --logo-bg: var(--md-primary); }
+.auth-logo .haven-logo { width: 46px; height: 46px; }
+.authcard h1 { margin: 0 0 6px; text-align: center; font-size: 24px; line-height: 32px; font-weight: 400; }
+.auth-sub { margin: 0 0 24px; text-align: center; color: var(--md-on-surface-variant); font-size: 14px; line-height: 20px; }
+.authcard .textfield { margin-bottom: 16px; }
+.auth-note, .auth-err, .acc-err { display: flex; gap: 8px; align-items: flex-start; margin: -4px 0 16px; font-size: 12px; line-height: 16px;
+  color: var(--md-on-surface-variant); }
+.auth-note svg.ic, .auth-err svg.ic, .acc-err svg.ic { width: 16px; height: 16px; flex: none; }
+.auth-err, .acc-err { color: var(--md-error); font-size: 14px; line-height: 20px; margin: 0 0 16px; }
+.auth-err[hidden], .acc-err[hidden] { display: none; }
+.authcard .filled-btn, .authcard .tonal-btn { width: 100%; justify-content: center; flex: none; height: 48px; }
+.auth-or { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--md-on-surface-variant); font-size: 12px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--md-outline-variant); }
+.auth-fine { margin: 10px 0 0; text-align: center; font-size: 12px; line-height: 16px; color: var(--md-on-surface-variant); }
+.auth-cancel { margin: 12px auto 0; }
+.auth-note code { font-size: 11px; }
+.auth-check { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 16px; font-size: 14px; line-height: 20px; cursor: pointer; }
+.auth-check input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--md-primary); flex: none; }
+.auth-check small { display: block; color: var(--md-on-surface-variant); font-size: 12px; line-height: 16px; margin-top: 2px; }
+
+/* ---------- header: account button + "Viewing only" chip ---------- */
+.viewonly { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px; margin-right: 4px;
+  border-radius: var(--shape-s, 8px); background: var(--md-secondary-container); color: var(--md-on-secondary-container);
+  font-size: 13px; font-weight: 500; white-space: nowrap; }
+.viewonly svg.ic { width: 18px; height: 18px; }
+.viewonly button { height: 26px; padding: 0 10px; border-radius: var(--shape-full, 999px); background: var(--md-primary);
+  color: var(--md-on-primary); font: inherit; font-size: 12px; border: 0; cursor: pointer; }
+.viewonly[hidden] { display: none; }
+@media (max-width: 480px) { .viewonly .vo-long { display: none; } }
+
+/* ---------- Account / Users & access pages ---------- */
+.acc-page { columns: auto; max-width: 720px; }
+.acc-card { padding: 20px 24px; margin-bottom: 16px; }
+.acc-card h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: 16px; font-weight: 500; }
+.acc-card h3 svg.ic { width: 20px; height: 20px; color: var(--md-primary); }
+.acc-card p { margin: 0 0 12px; line-height: 20px; }
+.acc-card .textfield { margin-bottom: 14px; }
+.acc-card .hint { margin-top: 8px; }
+.acc-out { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.acc-out .tonal-btn { flex: none; }
+.acc-toggle { display: flex; align-items: center; gap: 16px; }
+.acc-toggle .ltext b { font-weight: 500; }
+.acc-toggle .m3-switch { flex: none; }
+.acc-roles { margin: 0 0 16px; padding-left: 18px; font-size: 13px; line-height: 18px; color: var(--md-on-surface-variant); }
+.acc-roles li + li { margin-top: 4px; }
+.acc-roles b { color: var(--md-on-surface); font-weight: 500; }
+.ulist { margin-bottom: 4px; }
+.urow { display: flex; align-items: center; gap: 12px; padding: 12px 8px 12px 16px; min-height: 72px; }
+.urow + .urow, .ureset + .urow { border-top: 1px solid var(--md-outline-variant); }
+.urow .ltext b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.urow .ltext small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.urow .you { font-style: normal; font-size: 11px; font-weight: 500; padding: 1px 8px; margin-left: 6px; border-radius: var(--shape-full, 999px);
+  background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); vertical-align: 2px; }
+.urole select { height: 40px; padding: 0 8px; border-radius: var(--shape-xs, 4px); border: 1px solid var(--md-outline);
+  background: transparent; color: var(--md-on-surface); font: inherit; font-size: 14px; }
+.urole select option { background: var(--md-surface-container-high); color: var(--md-on-surface); }
+.urole select:disabled { opacity: .6; }
+.urow .icon-btn[disabled] { opacity: .38; cursor: not-allowed; }
+.ureset { padding: 4px 16px 16px 68px; }
+.ureset .textfield { margin: 4px 0 8px; }
+.ureset p { margin: 4px 0 0; }
+@media (max-width: 600px) {
+  .urow { flex-wrap: wrap; padding-right: 8px; }
+  .urow .ltext { flex-basis: calc(100% - 60px); }
+  .urole { margin-left: 52px; flex: 1; }
+  .urole select { width: 100%; }
+  .ureset { padding-left: 16px; }
+  .acc-card { padding: 16px; }
+}
+
+/* ---------- roles: what each one may touch ---------- */
+/* monitor (and guest viewers): observation only */
+body[data-role="monitor"] :is(#editmode, #editview, .add-view, [data-new-view], .rail-settings, [data-f="settings"], .card-edit,
+  [data-edit], [data-edit-view], [data-colorpick], .colors, .quick, [data-all-lights], .devrow [data-tab], .devrow [data-visible],
+  [data-reset-tabs], [data-snapshot], [data-goto-setting]:not(#account-btn), [data-goto="settings"]) { display: none !important; }
+body[data-role="monitor"] :is(.m3-switch, .segmented, input[type="range"], select[data-cmdsel], [data-cmd], [data-slider]) {
+  pointer-events: none; opacity: .55; }
+body[data-role="monitor"] .acc-page .m3-switch { pointer-events: auto; opacity: 1; }
+/* regular users: control devices, no arranging / editing / settings */
+body[data-role="user"] :is(#editmode, #editview, .add-view, [data-new-view], .card-edit, [data-edit], [data-edit-view],
+  .devrow [data-tab], .devrow [data-visible], [data-reset-tabs], [data-goto="settings"]) { display: none !important; }
+/* automations page (plugin): only admins edit */
+body:not([data-role="admin"]) :is([data-auto-new], [data-auto-edit], [data-auto-del], [data-auto-run], [data-auto-toggle]) { display: none !important; }
+body[data-role="monitor"] [data-f="automations"] { display: none !important; }

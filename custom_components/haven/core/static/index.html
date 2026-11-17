@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" data-seed="ocean" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<title>Haven</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'">
+<script src="/static/theme-init.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/automations.css">
+<link rel="stylesheet" href="/static/accounts.css">
+<script src="/static/icons.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#rooms">Skip to content</a>
+<nav class="rail" id="nav" aria-label="Main">
+  <div class="rail-logo" title="Haven"><svg class="haven-logo" viewBox="0 0 64 64" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="24.2" fill="none" stroke="currentColor" stroke-width="2.6"/><path fill="currentColor" d="M32 17.5 17.8 30.2l2 2.2 1.6-1.4V44.5h21.2V31l1.6 1.4 2-2.2-4.4-3.9V21h-3.2v2.5z"/><g fill="var(--logo-bg,#fff)"><rect x="25.4" y="31.6" width="5.4" height="4.4" rx=".8"/><rect x="33.2" y="31.6" width="5.4" height="4.4" rx=".8"/><rect x="25.4" y="37.6" width="5.4" height="4.4" rx=".8"/><rect x="33.2" y="37.6" width="5.4" height="4.4" rx=".8"/></g><circle cx="14.9" cy="14.9" r="7.4" fill="currentColor"/><g fill="var(--logo-bg,#fff)"><path d="M15.8 10.6 12.6 15.6h2.4l-1 3.8 3.2-5h-2.4z"/></g><circle cx="49.1" cy="14.9" r="7.4" fill="currentColor"/><g fill="var(--logo-bg,#fff)"><path d="M49.1 10.4c-1.9 2.5-2.9 4.2-2.9 5.4a2.9 2.9 0 0 0 5.8 0c0-1.2-1-2.9-2.9-5.4z"/></g><circle cx="14.9" cy="49.1" r="7.4" fill="currentColor"/><g fill="var(--logo-bg,#fff)"><path d="M14.1 44.6a.8.8 0 0 1 1.6 0v5.3a2.1 2.1 0 1 1-1.6 0z"/></g><circle cx="49.1" cy="49.1" r="7.4" fill="currentColor"/><g fill="var(--logo-bg,#fff)"><path d="M46.7 48.4h4.8v3.9h-4.8z"/><path d="M47.6 48.4v-1.3a1.5 1.5 0 0 1 3 0v1.3" fill="none" stroke="var(--logo-bg,#fff)" stroke-width="1.1"/></g></svg></div>
+  <div class="destinations">
+    <button data-f="all" data-phone><span class="ind" data-icon="dashboard"></span><span class="lbl">Home</span></button>
+    <button data-f="climate" data-phone><span class="ind" data-icon="thermostat"></span><span class="lbl">Climate</span></button>
+    <button data-f="air"><span class="ind" data-icon="air"><b class="badge warn" id="badge-air"></b></span><span class="lbl">Air quality</span></button>
+    <button data-f="lights" data-phone><span class="ind" data-icon="lightbulb"><b class="badge info" id="badge-lights"></b></span><span class="lbl">Lights</span></button>
+    <button data-f="water"><span class="ind" data-icon="water_drop"></span><span class="lbl">Water</span></button>
+    <button data-f="doors" data-phone><span class="ind" data-icon="sensor_door"><b class="badge warn" id="badge-doors"></b></span><span class="lbl">Doors</span></button>
+    <button data-f="security"><span class="ind" data-icon="shield_lock"></span><span class="lbl">Security</span></button>
+    <button data-f="controls"><span class="ind" data-icon="tune"></span><span class="lbl">Controls</span></button>
+    <button data-f="battery"><span class="ind" data-icon="battery_full"><b class="badge" id="badge-battery"></b></span><span class="lbl">Batteries</span></button>
+    <button data-f="power"><span class="ind" data-icon="power"><b class="badge" id="badge-power"></b></span><span class="lbl">Power</span></button>
+    <button data-f="devices"><span class="ind" data-icon="devices"></span><span class="lbl">Devices</span></button>
+    <div id="custom-views" class="custom-views"></div>
+    <button class="more-btn" data-open="more" aria-haspopup="dialog"><span class="ind" data-icon="more_horiz"><b class="badge" id="badge-more"></b></span><span class="lbl">More</span></button>
+  </div>
+  <button class="add-view" data-new-view title="Create a custom view"><span class="ind" data-icon="add"></span><span class="lbl">New view</span></button>
+  <button class="rail-settings" data-f="settings" aria-label="Settings"><span class="ind" data-icon="settings"></span><span class="lbl">Settings</span></button>
+</nav>
+
+<div class="page">
+  <header class="appbar">
+    <div>
+      <div class="greeting" id="greeting">Haven</div>
+      <div class="subtitle" id="subtitle"></div>
+    </div>
+    <div class="actions">
+      <span class="viewonly" id="viewonly" hidden><span data-icon="visibility"></span><span class="vo-long">Viewing only</span><button type="button" id="viewonly-signin">Sign in</button></span>
+      <span class="live" id="conn" title="Live connection" role="status" aria-label="Connecting"></span>
+      <button class="icon-btn" id="editview" aria-label="Edit this view" title="Edit this view" data-icon="tune" hidden></button>
+      <button class="icon-btn" id="viewmode" aria-label="Switch to table view" title="Table view" data-icon="table_rows"></button>
+      <button class="icon-btn" id="editmode" aria-label="Edit devices" title="Rename, move or hide devices" data-icon="edit"></button>
+      <button class="icon-btn" id="account-btn" data-goto-setting="account" aria-label="Your account" title="Your account" data-icon="person"></button>
+    </div>
+  </header>
+
+  <section class="summary" id="summary"></section>
+  <section class="banners" id="alerts"></section>
+  <main id="rooms" tabindex="-1"></main>
+  <footer id="status" hidden></footer>
+</div>
+
+<div class="snackbar" id="snackbar" role="status" aria-live="polite"></div>
+
+<dialog id="more" class="sheet" aria-label="More pages">
+  <form method="dialog">
+    <div class="handle"></div>
+    <div class="sheet-items">
+      <button value="air" data-f="air"><span data-icon="air"></span>Air quality</button>
+      <button value="battery" data-f="battery"><span data-icon="battery_full"></span>Batteries</button>
+      <button value="water" data-f="water"><span data-icon="water_drop"></span>Water</button>
+      <button value="security" data-f="security"><span data-icon="shield_lock"></span>Security</button>
+      <button value="controls" data-f="controls"><span data-icon="tune"></span>Controls</button>
+      <button value="power" data-f="power"><span data-icon="power"></span>Power</button>
+      <button value="devices" data-f="devices"><span data-icon="devices"></span>Devices</button>
+      <div id="more-views"></div>
+      <button type="button" data-new-view><span data-icon="add"></span>New view</button>
+      <button value="settings" data-f="settings"><span data-icon="settings"></span>Settings</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="edit" class="m3-dialog" aria-labelledby="edit-title">
+  <form method="dialog">
+    <div class="dlg-icon" data-icon="edit"></div>
+    <h2 id="edit-title">Edit device</h2>
+    <label class="textfield"><input name="name" placeholder=" " required><span>Name</span></label>
+    <label class="textfield"><input name="room" placeholder=" " list="roomlist"><span>Room</span></label>
+    <datalist id="roomlist"></datalist>
+    <label class="check"><input type="checkbox" name="pinned"><span>Pin to Favorites on Home</span></label>
+    <label class="check"><input type="checkbox" name="hidden"><span>Hide from dashboard</span></label>
+    <div class="dlg-actions"><button class="text-btn" value="cancel" formnovalidate>Cancel</button><button class="text-btn" value="save">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="confirm" class="m3-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+  <form method="dialog">
+    <div class="dlg-icon" id="confirm-icon"></div>
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text"></p>
+    <div class="dlg-actions"><button class="text-btn" value="no">Cancel</button><button class="text-btn" value="yes" id="confirm-yes">Confirm</button></div>
+  </form>
+</dialog>
+
+<dialog id="snapshot" class="m3-dialog wide" aria-labelledby="snap-title">
+  <form method="dialog">
+    <h2 id="snap-title">Snapshot</h2>
+    <div class="snap-frame" id="snap-frame"></div>
+    <div class="dlg-actions"><button type="button" class="text-btn" id="snap-refresh">Refresh</button><button class="text-btn" value="close">Close</button></div>
+  </form>
+</dialog>
+
+<dialog id="devpanel" class="m3-dialog wide devpanel" aria-labelledby="devpanel-title">
+  <form method="dialog">
+    <div class="dlg-xbar"><button type="button" class="dlg-x" data-close-panel aria-label="Close" title="Close"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-438 270-228q-9 9-21 9t-21-9q-9-9-9-21t9-21l210-210-210-210q-9-9-9-21t9-21q9-9 21-9t21 9l210 210 210-210q9-9 21-9t21 9q9 9 9 21t-9 21L522-480l210 210q9 9 9 21t-9 21q-9 9-21 9t-21-9L480-438Z"/></svg></button></div>
+    <div id="devpanel-body"></div>
+  </form>
+</dialog>
+
+
+<dialog id="viewdlg" class="m3-dialog wide" aria-labelledby="view-title">
+  <form method="dialog" id="view-form">
+    <h2 id="view-title">New view</h2>
+    <label class="textfield"><input name="name" placeholder=" " required maxlength="40" aria-describedby="view-name-err"><span>Name</span></label>
+    <small class="field-err" id="view-name-err" role="alert" hidden>Give the view a name, for example “Bedtime”.</small>
+    <div class="field-label">Icon</div><div class="icon-pick" id="icon-pick"></div>
+    <p class="vhelp">Show devices that match <b>all</b> the filters you pick (leave a group empty to ignore it), plus any you pick by hand.</p>
+    <div class="field-label">Rooms</div><div class="chipset" id="pick-rooms"></div>
+    <div class="field-label">Types</div><div class="chipset" id="pick-types"></div>
+    <div class="field-label">Brands</div><div class="chipset" id="pick-sources"></div>
+    <div class="field-label">Pick devices by hand</div><div class="devpick" id="pick-devices"></div>
+    <div class="vcount" id="view-count"></div>
+    <div class="dlg-actions"><button type="button" class="text-btn danger" id="view-delete">Delete view</button><span style="flex:1"></span>
+      <button class="text-btn" value="cancel" formnovalidate>Cancel</button><button class="text-btn" value="save">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="login" class="m3-dialog" aria-labelledby="login-title">
+  <form method="dialog" id="login-form">
+    <div class="dlg-icon" data-icon="login"></div>
+    <h2 id="login-title">Sign in</h2>
+    <p id="login-help"></p>
+    <div id="login-fields"></div>
+    <div class="dlg-actions"><button class="text-btn" value="cancel" formnovalidate>Cancel</button><button class="text-btn" id="login-go" value="go">Continue</button></div>
+  </form>
+</dialog>
+<script src="/static/sortable.min.js"></script>
+<script src="/static/accounts.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/automations.js"></script>
+</body>
+</html>

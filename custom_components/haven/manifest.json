@@ -1,0 +1,24 @@
+{
+  "domain": "haven",
+  "name": "Haven",
+  "codeowners": [
+    "@ryanbyte1701"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom"
+  ],
+  "documentation": "https://github.com/ryanbyte1701/haven-hacs",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/ryanbyte1701/haven/issues",
+  "requirements": [
+    "fastapi==0.163.*",
+    "starlette>=0.49.1,<2",
+    "httpx==0.28.*"
+  ],
+  "single_config_entry": true,
+  "version": "2026.11.17.1"
+}

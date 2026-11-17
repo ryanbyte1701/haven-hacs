@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Haven",
+        "description": "Adds Haven to the sidebar. Haven shows the devices you already have in Home Assistant, in their areas, and controls them through Home Assistant. Its settings, layout, automations and history are kept in the haven folder of your Home Assistant configuration."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Haven is already set up. Open it from the sidebar."
+    }
+  }
+}
