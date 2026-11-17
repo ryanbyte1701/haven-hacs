@@ -1274,3 +1274,58 @@ html[data-mode="light"] .dh-custom input { color-scheme: light; } html[data-mode
 @media (max-width: 839px) { .dh-custom .dtf { flex: 1 1 140px; } .live-cards { grid-template-columns: minmax(0, 1fr); } }
 #devpanel .panel-inner:focus { outline: none; }   /* takes the focus when the panel opens (not the X) */
 @media (max-width: 559px) { .dh-custom .dtf { flex: 1 1 100%; } }
+
+/* ---------- Group by: Room | Type ---------- */
+.groupby { display: flex; align-items: center; gap: 8px; margin-right: 4px; }
+.groupby[hidden] { display: none; }
+.gb-lbl { font-size: 12px; font-weight: 500; letter-spacing: .5px; color: var(--md-on-surface-variant); white-space: nowrap; }
+.groupby .segmented { height: 36px; }
+.groupby .segmented button { padding: 0 12px; font-size: 13px; min-width: 44px; }
+.groupby .segmented button svg.ic { width: 18px; height: 18px; display: inline-block; }
+.appbar.scrolled .groupby .segmented { height: 32px; }
+@media (max-width: 1100px) { .gb-lbl { display: none; } }
+@media (max-width: 839px) {
+  .groupby { margin-right: 0; }
+  .groupby .segmented { height: 36px; }
+  .groupby .segmented button { padding: 0 10px; min-width: 40px; }
+  .groupby .segmented button svg.ic { display: inline-block; }
+  .groupby .gl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.room.tsec h2 { display: flex; align-items: center; gap: 8px; }
+.tsec-ic { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--md-secondary-container); color: var(--md-on-secondary-container); flex: none; }
+.tsec-ic svg.ic { width: 18px; height: 18px; }
+.tsec-n { font-size: 12px; font-weight: 500; min-width: 22px; height: 20px; padding: 0 7px; border-radius: var(--shape-full); display: inline-grid; place-items: center;
+  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); font-variant-numeric: tabular-nums; }
+body.editing .room.tsec h2 { cursor: default; }
+body.editing .room.tsec { outline: 0; }
+.card .src .croom, .mini-small .croom { color: var(--md-on-surface); font-weight: 500; }
+.card.alarm .src .croom { color: inherit; }
+.dtable tr.tgroup th { position: static; height: 44px; padding: 14px 16px 6px; font-size: 14px; letter-spacing: .1px; color: var(--md-on-surface);
+  background: var(--md-surface-container); }
+.dtable tr.tgroup .tg { display: inline-flex; align-items: center; gap: 8px; }
+.dtable tr.tgroup .tsec-ic { width: 24px; height: 24px; } .dtable tr.tgroup .tsec-ic svg.ic { width: 16px; height: 16px; }
+.batt-group.tgroup { display: flex; align-items: center; gap: 8px; }
+.editbar.bytype [data-groupby] { white-space: nowrap; }
+.frow > span small { display: block; font-weight: 400; font-size: 12px; margin-top: 2px; }
+
+/* ---------- alert chips: grouped, wrap on phones, expandable list ---------- */
+#alerts button.chip { cursor: pointer; font: inherit; }
+#alerts .chip .chev { display: inline-grid; transition: transform .15s var(--ease); margin-right: -4px; }
+#alerts .chip .chev.up { transform: rotate(180deg); }
+#alerts .alert-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+#alerts .alert-list small { color: var(--md-on-surface-variant); margin-left: 4px; }
+@media (max-width: 839px) { .banners { flex-wrap: wrap; overflow: visible; margin: 0 0 8px; padding: 0; } }
+/* long field labels (e.g. "Skip entities (optional, …)") stay on one line instead of spilling over the border */
+.textfield span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 24px); }
+/* table layout: always the full width of the page (main is a wrapping flex row, which shrank it to its content) */
+main > .table-wrap { flex: 1 1 100%; width: 100%; min-width: 0; }
+main > .table-wrap > .dtable { width: 100%; }
+
+/* phone table rows: "Source · Room" on one line, compact battery (number only) */
+.devtable .rm-inline { display: none; }
+@media (max-width: 839px) {
+  .devtable .rm-inline { display: inline; }
+  .devtable td.c-room { display: none !important; }
+  .devtable td.c-bat .level { min-width: 0; }
+  .devtable td.c-bat .level .bar { display: none; }
+}

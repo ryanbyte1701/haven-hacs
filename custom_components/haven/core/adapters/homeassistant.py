@@ -12,6 +12,14 @@ Only entity types Haven understands are imported (sensors, binary sensors, light
 valves, covers, alarm panels, fans, climate readings, weather). Hidden, disabled and
 configuration/diagnostic entities are skipped (battery level is kept).
 
+A few Home Assistant integrations get Haven's own presentation, so they look like Haven's integrations:
+- NUT (UPS) devices: their sensors (ups.status, battery.charge, battery.runtime, ups.load, voltages, real power)
+  become the same UPS capabilities app/adapters/nut.py produces (parse_status), so the Power page shows them;
+- weather.* entities: the daily forecast (weather.get_forecasts, every 30 minutes and when the condition
+  changes) goes into the device's attributes like app/adapters/weather.py's, for the Home page weather card;
+- outdoor air quality services (AirNow, WAQI, IQAir, ...): kind "aqi_station", like app/adapters/airquality.py,
+  for the Home page "Outdoor air" tile and the Air quality page.
+
 Devices that Home Assistant gets from an integration Haven also connects to directly (YoLink, Hue, Tapo,
 MQTT, Matter, ...; see NATIVE) are skipped too, whether or not that Haven integration is turned on, so a
 device never shows up twice. "Also import devices from integrations Haven connects to directly" turns
@@ -24,10 +32,13 @@ import fnmatch
 import json
 import math
 import re
+import time
+from datetime import datetime
 from typing import Any
 
 from ..models import Device, cap
 from .base import Adapter
+from .nut import UPS_CAPS, parse_status
 
 DOMAINS = ["sensor", "binary_sensor", "light", "switch", "input_boolean", "lock", "valve", "cover",
            "alarm_control_panel", "fan", "climate", "weather"]
@@ -80,6 +91,32 @@ ALARM_STATES = {"disarmed", "armed_home", "armed_away", "armed_night", "armed_va
 WEATHER_ICON = {"sunny": "clear", "clear-night": "clear", "partlycloudy": "partly", "cloudy": "cloudy", "fog": "fog",
                 "rainy": "rain", "pouring": "rain", "lightning": "storm", "lightning-rainy": "storm", "snowy": "snow",
                 "snowy-rainy": "sleet", "hail": "sleet", "windy": "cloudy", "windy-variant": "cloudy", "exceptional": "cloudy"}
+# Home Assistant weather condition -> the words app/adapters/weather.py uses for the same weather
+WEATHER_TEXT = {"sunny": "Sunny", "clear-night": "Clear", "partlycloudy": "Partly cloudy", "cloudy": "Cloudy", "fog": "Fog",
+                "rainy": "Rain", "pouring": "Heavy rain", "lightning": "Thunderstorm", "lightning-rainy": "Thunderstorm",
+                "snowy": "Snow", "snowy-rainy": "Sleet", "hail": "Hail", "windy": "Windy", "windy-variant": "Windy, cloudy",
+                "exceptional": "Exceptional"}
+FORECAST_SECONDS = 30 * 60      # weather.get_forecasts for each weather entity this often (and when its condition changes)
+
+# Home Assistant's NUT integration (homeassistant/components/nut/sensor.py): sensor translation key -> NUT variable.
+NUT_KEYS = {"ups_status": "ups.status", "ups_status_display": "ups.status.display", "battery_charge": "battery.charge",
+            "battery_runtime": "battery.runtime", "ups_load": "ups.load", "input_voltage": "input.voltage",
+            "output_voltage": "output.voltage", "ups_realpower": "ups.realpower",
+            "ups_realpower_nominal": "ups.realpower.nominal"}
+# ... and by entity id, from the English entity names ("Status data", "Battery charge", ...), most specific first
+NUT_SUFFIXES = (("_status_data", "ups.status"), ("_battery_charge", "battery.charge"), ("_battery_runtime", "battery.runtime"),
+                ("_input_voltage", "input.voltage"), ("_output_voltage", "output.voltage"),
+                ("_nominal_real_power", "ups.realpower.nominal"), ("_real_power", "ups.realpower"), ("_load", "ups.load"),
+                ("_status", "ups.status.display"))
+# the "Status" sensor's words (nut/const.py STATE_TYPES) -> NUT status flags, for when "Status data" is disabled
+NUT_STATUS_WORDS = {"online": "OL", "on battery": "OB", "low battery": "LB", "high battery": "HB",
+                    "battery needs replacement": "RB", "battery charging": "CHRG", "battery discharging": "DISCHRG",
+                    "bypass active": "BYPASS", "runtime calibration": "CAL", "offline": "OFF", "overloaded": "OVER",
+                    "trimming voltage": "TRIM", "boosting voltage": "BOOST", "forced shutdown": "FSD", "alarm": "ALARM"}
+SECONDS = {"ms": 0.001, "s": 1, "min": 60, "h": 3600, "d": 86400}
+# Outdoor air quality services in Home Assistant: their devices become Haven's "aqi_station" (Home page "Outdoor air")
+OUTDOOR_AQI = {"airnow": "AirNow", "waqi": "WAQI", "airvisual": "IQAir AirVisual", "google_air_quality": "Google Air Quality",
+               "purpleair": "PurpleAir", "luftdaten": "Sensor.Community", "airly": "Airly"}
 
 
 def _num(v: Any) -> float | None:
@@ -184,9 +221,72 @@ def map_entity(entity_id: str, state: str, attrs: dict) -> dict[str, tuple[Any, 
             out["wind_speed"] = (_num(attrs.get("wind_speed")), {"unit": attrs.get("wind_speed_unit"), "label": "Wind"})
         if _num(attrs.get("uv_index")) is not None:
             out["uv"] = (_num(attrs.get("uv_index")), {"label": "UV"})
-        out["status_text"] = (None if unavailable else str(state).replace("-", " ").replace("partlycloudy", "partly cloudy").capitalize(), {"label": "Conditions"})
+        if _num(attrs.get("wind_gust_speed")) is not None:
+            out["wind_gust"] = (_num(attrs.get("wind_gust_speed")), {"unit": attrs.get("wind_speed_unit"), "label": "Gust"})
+        if _num(attrs.get("pressure")) is not None:
+            out["pressure"] = (_num(attrs.get("pressure")), {"unit": attrs.get("pressure_unit")})
+        out["status_text"] = (None if unavailable else weather_text(state), {"label": "Conditions"})
     else:
         return None
+    return out
+
+
+def weather_text(condition: Any) -> str:
+    c = str(condition or "")
+    return WEATHER_TEXT.get(c) or c.replace("-", " ").capitalize()
+
+
+def _timestamp(v: Any) -> int | None:
+    try:
+        return int(datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_forecast(items: Any, attrs: dict) -> dict:
+    """weather.get_forecasts (type daily) -> the attributes app/adapters/weather.py gives its device:
+    {"daily": [{t, text, icon, hi, lo, pop, rain, uv, sunrise, sunset}], "units": {"wind", "rain"}}.
+    Temperatures in °C like Open-Meteo's (the UI converts); rain in the weather entity's precipitation unit."""
+    tu = attrs.get("temperature_unit")
+    days = []
+    for f in items if isinstance(items, list) else []:
+        if not isinstance(f, dict) or f.get("is_daytime") is False:      # twice_daily: keep the day halves
+            continue
+        t = _timestamp(f.get("datetime"))
+        if t is None:
+            continue
+        c = f.get("condition")
+        days.append({"t": t, "text": weather_text(c), "icon": WEATHER_ICON.get(c, "cloudy"),
+                     "hi": to_celsius(_num(f.get("temperature")), tu), "lo": to_celsius(_num(f.get("templow")), tu),
+                     "pop": _num(f.get("precipitation_probability")), "rain": _num(f.get("precipitation")),
+                     "uv": _num(f.get("uv_index")), "sunrise": None, "sunset": None})
+    return {"daily": days[:7], "units": {"wind": attrs.get("wind_speed_unit") or "", "rain": attrs.get("precipitation_unit") or ""}}
+
+
+def nut_vars(states: dict[str, tuple[Any, dict]]) -> dict[str, str]:
+    """{NUT variable: (HA state, HA attributes)} of one UPS -> NUT variables as upsd sends them (runtime in seconds,
+    power in W, the status as flags), for nut.parse_status."""
+    out: dict[str, str] = {}
+    for var, (st, attrs) in states.items():
+        if st in (None, "unknown", "unavailable", "") or var == "ups.status.display":
+            continue
+        unit = (attrs or {}).get("unit_of_measurement")
+        if var == "battery.runtime":
+            v = _num(st)
+            if v is None:
+                continue
+            st = f"{v * SECONDS.get(str(unit or 's'), 1):g}"
+        elif var.startswith("ups.realpower"):
+            v = to_watts(_num(st), unit)
+            if v is None:
+                continue
+            st = f"{v:g}"
+        out[var] = str(st)
+    disp = states.get("ups.status.display")
+    if "ups.status" not in out and disp and disp[0] not in (None, "unknown", "unavailable"):
+        flags = [NUT_STATUS_WORDS.get(w.strip().lower()) for w in str(disp[0]).split(",")]
+        if any(flags):
+            out["ups.status"] = " ".join(f for f in flags if f)
     return out
 
 
@@ -229,6 +329,16 @@ class HomeAssistantAdapter(Adapter):
         self._refresh_now = asyncio.Event()
         self._refreshed: asyncio.Future | None = None
         self.last_import: float | None = None
+        # NUT (UPS) devices: entity_id -> NUT variable, and per Haven device {NUT variable: (state, attributes)}
+        self.entity_nut: dict[str, str] = {}
+        self.nut_states: dict[str, dict[str, tuple[Any, dict]]] = {}
+        # weather entities: the latest attributes and condition, the forecast, when it was fetched
+        self.weather_attrs: dict[str, dict] = {}
+        self.weather_state: dict[str, Any] = {}
+        self.forecasts: dict[str, dict] = {}
+        self._forecast_at: dict[str, float] = {}
+        self._forecast_due: set[str] = set()
+        self._forecast_now = asyncio.Event()
 
     async def start(self):
         if not self.url or not self.token:
@@ -278,16 +388,18 @@ class HomeAssistantAdapter(Adapter):
                     self.status = "error: Home Assistant rejected the access token"
                     raise RuntimeError("Home Assistant rejected the access token")
                 reader = asyncio.create_task(self._reader(ws))
-                refresher = None
+                refresher = forecaster = None
                 try:
                     await self._load()
                     await self._send({"type": "subscribe_events", "event_type": "state_changed"})
                     refresher = asyncio.create_task(self._refresher())
+                    forecaster = asyncio.create_task(self._forecaster())
                     await reader
                 finally:
                     reader.cancel()
-                    if refresher:
-                        refresher.cancel()
+                    for t in (refresher, forecaster):
+                        if t:
+                            t.cancel()
                     if self._refreshed is not None and not self._refreshed.done():
                         self._refreshed.set_exception(RuntimeError("connection to Home Assistant closed"))
                         self._refreshed.exception()        # retrieved: no "never retrieved" warning if nobody waits
@@ -388,7 +500,7 @@ class HomeAssistantAdapter(Adapter):
             if not self._wanted(eid):
                 continue
             mapped = map_entity(eid, st.get("state"), st.get("attributes") or {})
-            if not mapped:
+            if not mapped and not self._nut_var(eid):          # NUT's "Status data" is text
                 continue
             reg = self.registry.get(eid) or {}
             key = reg.get("device_id") or eid
@@ -398,6 +510,7 @@ class HomeAssistantAdapter(Adapter):
                 continue
             grouped.setdefault(key, []).append(st)
         self.entity_dev.clear(); self.entity_caps.clear(); self.cap_entity.clear()
+        self.entity_nut.clear(); self.nut_states.clear()
         count = 0
         for key, sts in grouped.items():
             if self._register(key, sts):
@@ -405,8 +518,8 @@ class HomeAssistantAdapter(Adapter):
         keep = set(self.entity_dev.values())
         for did in [d.id for d in list(self.hub.devices.values()) if d.source == self.source and d.id not in keep]:
             self.hub.remove_device(did)                    # removed, filtered out, or now covered by a Haven integration
-        import time as _time
-        self.last_import = _time.time()
+        self.last_import = time.time()
+        self._forecast_now.set()                           # forecasts for weather entities that are new
         self.imported = count
         self.skipped = {k: len(v) for k, v in skipped.items()}
         if count:
@@ -439,8 +552,8 @@ class HomeAssistantAdapter(Adapter):
         reg = self.registry.get(eid) or {}
         if reg.get("disabled_by") or reg.get("hidden_by"):
             return False
-        if reg.get("entity_category") in SKIP_CATEGORIES and "battery" not in eid:
-            return False                                   # settings/diagnostics; battery level is kept
+        if reg.get("entity_category") in SKIP_CATEGORIES and "battery" not in eid and not self._nut_var(eid):
+            return False                                   # settings/diagnostics; battery level and UPS readings are kept
         if any(fnmatch.fnmatch(eid, p) for p in self.exclude):
             return False
         if self.areas_filter:
@@ -448,6 +561,23 @@ class HomeAssistantAdapter(Adapter):
             if area not in self.areas_filter:
                 return False
         return True
+
+    def _nut_var(self, eid: str) -> str | None:
+        """The NUT variable a sensor of Home Assistant's NUT integration shows (ups.status, battery.charge, ...)."""
+        if not eid.startswith("sensor.") or "nut" not in self._integrations(eid):
+            return None
+        reg = self.registry.get(eid) or {}
+        if reg.get("translation_key") in NUT_KEYS:
+            return NUT_KEYS[reg["translation_key"]]
+        uid = str(reg.get("unique_id") or "")                # "<UPS unique id>_<NUT variable>"
+        for var in NUT_KEYS.values():
+            if uid.endswith("_" + var):
+                return var
+        obj = re.sub(r"_\d+$", "", eid.split(".", 1)[1])     # sensor.ups_load_2
+        for suffix, var in NUT_SUFFIXES:
+            if obj.endswith(suffix):
+                return var
+        return None
 
     def _area_name(self, eid: str) -> str | None:
         reg = self.registry.get(eid) or {}
@@ -463,11 +593,32 @@ class HomeAssistantAdapter(Adapter):
         caps: dict[str, Any] = {}
         values: dict[str, Any] = {}
         kind = None
+        has_switch = outlet = has_light = False
+        nut: dict[str, tuple[Any, dict]] = {}
         for st in sts:
             eid = st["entity_id"]
+            dom = eid.split(".")[0]
+            var = self._nut_var(eid)
+            if var:                                    # a UPS reading: combined below, like app/adapters/nut.py
+                nut[var] = (st.get("state"), st.get("attributes") or {})
+                self.entity_nut[eid] = var
+                self.entity_dev[eid] = did
+                self.entity_caps[eid] = []
+                continue
+            if dom == "switch":
+                has_switch = True
+                outlet = outlet or (st.get("attributes") or {}).get("device_class") == "outlet"
+            elif dom == "light":
+                has_light = True
             mapped = map_entity(eid, st.get("state"), st.get("attributes") or {}) or {}
             names = []
             for cname, (v, kw) in mapped.items():
+                if cname == "energy_total":            # TP-Link/Tapo & co: "Today's" / "This month's consumption"
+                    hint = f"{eid} {(st.get('attributes') or {}).get('friendly_name') or ''}".lower()
+                    if "today" in hint or "daily" in hint:
+                        cname = "energy_today"
+                    elif "month" in hint:
+                        cname = "energy_month"
                 final = cname
                 if final in caps:                          # two entities give the same reading: keep both
                     final = f"{cname}_{re.sub(r'[^A-Za-z0-9_]', '_', eid.split('.', 1)[1])[-20:]}"
@@ -489,17 +640,43 @@ class HomeAssistantAdapter(Adapter):
                 kind = "weather"
             elif domain == "light" and kind is None:
                 kind = "light"
+        nv: dict[str, str] = {}
+        if nut:
+            self.nut_states[did] = nut
+            nv = nut_vars(nut)
+            for c in UPS_CAPS:
+                caps.setdefault(c, cap(c))
+            values.update(parse_status(nv))
         if not caps:
             return False
+        # Smart plugs and power strips (TP-Link/Tapo, Shelly Plug, Kasa…): a switch with an outlet device class or its
+        # own power/energy reading. They then appear on the Power page and get the plug card.
+        plug_model = bool(re.search(r"\b(P1\d\d\w*|P3\d\d\w*|TP25\w*|KP\d+\w*|HS1\d\d\w*|EP\d+\w*|HS300|KP\d+)\b|plug|outlet|strip",
+                                    f"{devreg.get('model') or ''} {devreg.get('name') or ''}", re.I))
+        if kind is None and has_switch and not has_light and (outlet or plug_model or any(
+                c.split("_")[0] in ("power", "energy") for c in caps)):
+            kind = "smart_plug"
+        aq_service = next((OUTDOOR_AQI[d] for d in sorted(self._integrations(first["entity_id"])) if d in OUTDOOR_AQI), None)
+        if kind is None and aq_service and "aqi" in caps:
+            kind = "aqi_station"
         room = self._area_name(first["entity_id"]) or ((self.areas.get(devreg.get("area_id"))) if devreg else None)
         self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps))
         attrs = {"ha_entities": [s["entity_id"] for s in sts][:40]}
         if kind:
             attrs["kind"] = kind
         if kind == "weather":
-            wa = next((s.get("attributes") or {} for s in sts if s["entity_id"].startswith("weather.")), {})
-            wst = next((s.get("state") for s in sts if s["entity_id"].startswith("weather.")), "")
-            attrs.update(icon=WEATHER_ICON.get(wst, "cloudy"), is_day=wst != "clear-night", place=wa.get("friendly_name"))
+            weid = next(s["entity_id"] for s in sts if s["entity_id"].startswith("weather."))
+            wa = next((s.get("attributes") or {} for s in sts if s["entity_id"] == weid), {})
+            wst = next((s.get("state") for s in sts if s["entity_id"] == weid), "")
+            self.weather_attrs[weid], self.weather_state[weid] = dict(wa), wst
+            attrs.update(icon=WEATHER_ICON.get(wst, "cloudy"), is_day=wst != "clear-night", place=wa.get("friendly_name"),
+                         wind_dir=_num(wa.get("wind_bearing")),
+                         units={"wind": wa.get("wind_speed_unit") or "", "rain": wa.get("precipitation_unit") or ""})
+            attrs.update(self.forecasts.get(weid) or {})       # the device was re-created: keep its forecast
+        elif kind == "aqi_station":
+            attrs.update(provider=f"{aq_service} (Home Assistant)", place=room or str(name)[:80])
+        if nut:
+            attrs["nut_vars"] = nv
         self.hub.set_attributes(did, attrs)
         online = any(s.get("state") not in ("unavailable",) for s in sts)
         self.hub.set_values(did, {k: v for k, v in values.items() if v is not None}, online=online)
@@ -507,6 +684,13 @@ class HomeAssistantAdapter(Adapter):
 
     def _apply(self, eid: str, ns: dict):
         did = self.entity_dev[eid]
+        if eid in self.entity_nut:
+            nut = self.nut_states.setdefault(did, {})
+            nut[self.entity_nut[eid]] = (ns.get("state"), ns.get("attributes") or {})
+            nv = nut_vars(nut)
+            self.hub.set_attributes(did, {"nut_vars": nv})
+            self.hub.set_values(did, parse_status(nv), online=ns.get("state") != "unavailable")
+            return
         mapped = map_entity(eid, ns.get("state"), ns.get("attributes") or {}) or {}
         names = self.entity_caps.get(eid, [])
         vals = {}
@@ -514,8 +698,49 @@ class HomeAssistantAdapter(Adapter):
             if v is not None:
                 vals[final] = v
         if eid.startswith("weather."):
-            self.hub.set_attributes(did, {"icon": WEATHER_ICON.get(ns.get("state"), "cloudy"), "is_day": ns.get("state") != "clear-night"})
+            wa = ns.get("attributes") or {}
+            self.weather_attrs[eid] = dict(wa)
+            self.hub.set_attributes(did, {"icon": WEATHER_ICON.get(ns.get("state"), "cloudy"), "is_day": ns.get("state") != "clear-night",
+                                          "wind_dir": _num(wa.get("wind_bearing"))})
+            if ns.get("state") != self.weather_state.get(eid):        # the condition changed: fetch the forecast again
+                self.weather_state[eid] = ns.get("state")
+                self._forecast_due.add(eid)
+                self._forecast_now.set()
         self.hub.set_values(did, vals, online=ns.get("state") != "unavailable")
+
+    # ---------------- weather forecasts ----------------
+    async def _forecaster(self):
+        """Daily forecasts of the imported weather entities: every FORECAST_SECONDS, and soon after a weather
+        entity's condition changes or a new one is imported (Home Assistant no longer puts them in the state)."""
+        while True:
+            self._forecast_now.clear()
+            now = time.monotonic()
+            for eid in [e for e in self.entity_dev if e.startswith("weather.")]:
+                if eid in self._forecast_due or now - self._forecast_at.get(eid, -FORECAST_SECONDS) >= FORECAST_SECONDS:
+                    self._forecast_due.discard(eid)
+                    self._forecast_at[eid] = now
+                    try:
+                        await self.update_forecast(eid)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:  # noqa: BLE001 - e.g. a weather service without daily forecasts
+                        self.log.info("forecast of %s: %s", eid, e)
+            try:
+                await asyncio.wait_for(self._forecast_now.wait(), 60)
+            except asyncio.TimeoutError:
+                pass
+
+    async def update_forecast(self, eid: str) -> None:
+        res = await self._send({"type": "call_service", "domain": "weather", "service": "get_forecasts",
+                                "service_data": {"type": "daily"}, "target": {"entity_id": eid},
+                                "return_response": True}, timeout=30)
+        resp = (res or {}).get("response") if isinstance(res, dict) else None
+        items = ((resp or {}).get(eid) or {}).get("forecast") if isinstance(resp, dict) else None
+        fc = parse_forecast(items, self.weather_attrs.get(eid) or {})
+        self.forecasts[eid] = fc
+        did = self.entity_dev.get(eid)
+        if did in self.hub.devices:
+            self.hub.set_attributes(did, fc, publish=True)
 
     # ---------------- control ----------------
     async def command(self, device: Device, capability: str, value: Any):

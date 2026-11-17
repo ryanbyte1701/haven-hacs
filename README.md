@@ -48,3 +48,5 @@ improvements arrive in both.
 
 Haven runs entirely inside your Home Assistant. It connects to nothing on its own, only to what you set up
 (an automation's webhook, a Prometheus server for history).
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md) (also on each GitHub release).

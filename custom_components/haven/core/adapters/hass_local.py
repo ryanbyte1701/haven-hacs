@@ -7,7 +7,7 @@ objects directly:
 - the area, device and entity registries and `hass.states`;
 - EVENT_STATE_CHANGED for live updates, and the registry-updated events for new, renamed, moved or removed
   devices (re-read after a short pause, so a burst of changes is one reload);
-- controls go to `hass.services.async_call`.
+- controls go to `hass.services.async_call`, and so do weather.get_forecasts (return_response) for the forecasts.
 
 Haven may run its own event loop in its own thread (the HACS wrapper does that, so Haven's file and database
 work never holds up Home Assistant): everything that touches `hass` is then run in Home Assistant's loop
@@ -126,6 +126,7 @@ class HassLocalAdapter(HomeAssistantAdapter):
             return [bus.async_listen(EVENT_STATE_CHANGED, self._on_state)] + \
                    [bus.async_listen(ev, self._on_registry) for ev in REGISTRY_EVENTS]
         self._unsubs = await self._in_hass(subscribe)
+        self.spawn("forecast", self._forecaster, max_delay=300)      # weather.get_forecasts (homeassistant.py)
 
     async def stop(self):
         unsubs, self._unsubs = self._unsubs, []
@@ -203,6 +204,11 @@ class HassLocalAdapter(HomeAssistantAdapter):
             return None                         # start() listens on the bus itself
         if kind == "call_service":
             hass = self.hass
+            if msg.get("return_response"):            # e.g. weather.get_forecasts: answered like the WebSocket API
+                resp = await self._in_hass_await(lambda: hass.services.async_call(
+                    msg["domain"], msg["service"], dict(msg.get("service_data") or {}), blocking=True,
+                    target=msg.get("target"), return_response=True))
+                return {"context": None, "response": resp}
             return await self._in_hass_await(lambda: hass.services.async_call(
                 msg["domain"], msg["service"], dict(msg.get("service_data") or {}), blocking=True,
                 target=msg.get("target")))
@@ -221,13 +227,15 @@ class HassLocalAdapter(HomeAssistantAdapter):
             entries = [reg.devices[d] if isinstance(d, str) else d for d in list(reg.devices)]
             return [{"id": d.id, "name": d.name, "name_by_user": d.name_by_user, "manufacturer": d.manufacturer,
                      "model": d.model, "area_id": d.area_id, "identifiers": _plain(d.identifiers),
+                     "config_entries": _plain(getattr(d, "config_entries", None) or []),
                      "disabled_by": _plain(d.disabled_by)} for d in entries]
         if kind == "config/entity_registry/list":
             from homeassistant.helpers import entity_registry as er
             return [{"entity_id": e.entity_id, "device_id": e.device_id, "area_id": e.area_id,
                      "disabled_by": _plain(e.disabled_by), "hidden_by": _plain(e.hidden_by),
                      "entity_category": _plain(e.entity_category), "platform": e.platform,
-                     "config_entry_id": e.config_entry_id}
+                     "config_entry_id": e.config_entry_id, "unique_id": getattr(e, "unique_id", None),
+                     "translation_key": getattr(e, "translation_key", None)}
                     for e in list(er.async_get(hass).entities.values())]
         if kind == "get_states":
             return [{"entity_id": s.entity_id, "state": s.state, "attributes": dict(s.attributes)}

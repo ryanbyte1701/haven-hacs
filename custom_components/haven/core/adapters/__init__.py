@@ -14,7 +14,7 @@ import pkgutil
 
 from .. import edition
 
-if edition.HACS:      # Home Assistant edition: devices come only from Home Assistant (app/edition.py)
+if edition.HACS:      # Home Assistant edition: Home Assistant's devices plus a few non-brand ones (app/edition.py)
     ADAPTERS: dict = {}
 else:
     from .aqara import AqaraAdapter
@@ -56,3 +56,9 @@ for _m in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
 
 if not edition.HACS:
     ADAPTERS["demo"] = DemoAdapter      # keep demo last
+elif edition.adapter_allowed("nut"):     # the built-ins the Home Assistant edition ships (app/edition.py)
+    from .nut import NutAdapter
+    ADAPTERS["nut"] = NutAdapter
+if edition.HACS:
+    for _k in [k for k in ADAPTERS if k != "hass"]:
+        ADAPTERS[_k] = ADAPTERS.pop(_k)          # Home Assistant's own devices first

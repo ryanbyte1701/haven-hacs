@@ -30,7 +30,7 @@
     climate: ["temperature", "humidity", "pressure", "co2", "pm25", "pm10", "voc", "aqi", "air_score", "illuminance", "wind_speed", "rain_daily", "moisture"],
     water: ["leak", "valve", "moisture", "rain_daily", "flow_rate", "water_pressure", "water_usage_today", "ph", "orp", "free_chlorine", "watering"],
     doors: ["contact"],
-    security: ["contact", "lock", "motion", "presence", "vibration", "tamper", "smoke", "co", "co_ppm", "heat", "alarm_panel", "ding"],
+    security: ["contact", "lock", "motion", "presence", "occupancy", "vibration", "tamper", "smoke", "co", "co_ppm", "gas", "heat", "alarm_panel", "ding"],
     controls: ["lock", "valve", "switch", "action", "light", "alarm_panel"],
     lights: ["light"],
   };
@@ -104,7 +104,7 @@
   const srcLabel = d => { const s = (d.model || "").startsWith("demo (") ? d.model.slice(6, -1) : d.source; return SRC[s] || s; };
   const runtimeText = m => m == null ? "–" : m >= 90 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`;
 
-  const isAlarm = d => ["leak", "smoke", "co", "heat"].some(k => val(d, k) === true) || (val(d, "co_ppm") ?? 0) >= 50 ||
+  const isAlarm = d => ["leak", "smoke", "co", "gas", "heat"].some(k => val(d, k) === true) || (val(d, "co_ppm") ?? 0) >= 50 ||
     val(d, "alarm_panel") === "triggered" || val(d, "ups_status") === "low_battery";
   const needsAttention = d => isAlarm(d) || (val(d, "contact") === "open" && !has(d, "lock")) || val(d, "lock") === "unlocked" ||
     val(d, "ups_status") === "on_battery" || batteryLow(d) || !d.online;
@@ -115,6 +115,47 @@
   const coAlarm = d => has(d, "co") && typeof val(d, "co") !== "number";   // outdoor AQI services report CO as a number
   const isLight = d => d.attributes?.kind === "light" || d.attributes?.kind === "group" || (has(d, "light") && has(d, "brightness"));
   const isGroup = d => d.attributes?.kind === "group";
+  const isThermostat = d => kindOf(d) === "thermostat" || has(d, "hvac_mode") || ["heat_setpoint", "cool_setpoint", "target_temperature"].some(k => has(d, k));
+
+  // ---------- device types (Group by: Type) ----------
+  // One human type per device, in the order the sections appear. Edit this list to add or reorder types.
+  const DEVICE_TYPES = [
+    ["thermostat", "Thermostats", "thermostat"], ["climate", "Temperature & humidity", "device_thermostat"], ["air", "Air quality", "aq_indoor"],
+    ["purifier", "Purifiers", "air_purifier"], ["light", "Lights", "lightbulb"], ["light_group", "Light groups", "home_iot_device"],
+    ["plug", "Plugs & switches", "outlet"], ["lock", "Locks", "lock"], ["door", "Doors & windows", "door_front"],
+    ["motion", "Motion & presence", "sensor_occupied"], ["camera", "Cameras & doorbells", "videocam"], ["alarm", "Alarm panels", "shield"],
+    ["smoke", "Smoke & CO alarms", "detector_smoke"], ["leak", "Leak sensors", "water_damage"], ["valve", "Valves", "valve"],
+    ["water", "Water", "water"], ["soil", "Soil moisture", "grass"], ["weather", "Weather", "partly_cloudy_day"], ["ups", "UPS", "battery_charging_full"],
+    ["ev", "EV chargers", "ev_station"], ["vacuum", "Vacuums", "vacuum"], ["other", "Other", "sensors"]];
+  const TYPE_RANK = Object.fromEntries(DEVICE_TYPES.map((t, i) => [t[0], i]));
+  const TYPE_INFO = Object.fromEntries(DEVICE_TYPES.map(t => [t[0], t]));
+  function deviceType(d) {
+    const k = kindOf(d), any = (...ks) => ks.some(x => has(d, x));
+    if (isThermostat(d)) return "thermostat";
+    if (isUps(d)) return "ups";
+    if (k === "ev_charger" || has(d, "charger_status")) return "ev";
+    if (k === "vacuum" || has(d, "vacuum_state")) return "vacuum";
+    if (k === "air_purifier") return "purifier";
+    if (k === "weather") return "weather";
+    if (k === "aqi_station" || k === "air_monitor") return "air";
+    if (has(d, "alarm_panel")) return "alarm";
+    if (has(d, "smoke") || coAlarm(d) || any("heat", "gas")) return "smoke";
+    if (has(d, "ding") || d.attributes?.has_snapshot || ["camera", "doorbell"].includes(k) || d.source === "ring") return "camera";
+    if (isGroup(d)) return "light_group";
+    if (isLight(d)) return "light";
+    if (has(d, "lock")) return "lock";
+    if (["pool", "water_monitor", "irrigation_zone", "irrigation_controller"].includes(k) || any("ph", "flow_rate", "watering", "water_usage_today")) return "water";
+    if (has(d, "leak")) return "leak";
+    if (has(d, "valve")) return "valve";
+    if (has(d, "contact")) return "door";
+    if (any("motion", "presence") || (has(d, "occupancy") && typeof val(d, "occupancy") !== "number")) return "motion";
+    if (k === "smart_plug" || has(d, "switch")) return "plug";
+    if (any("air_score", "co2", "pm25", "voc", "aqi")) return "air";
+    if (any("wind_speed", "rain_daily")) return "weather";
+    if (has(d, "moisture") && !has(d, "temperature")) return "soil";
+    if (any("temperature", "humidity")) return "climate";
+    return "other";
+  }
   const PRESETS = ["#ffb46b", "#ffe9c9", "#ff5a4e", "#ff9f1c", "#7bd389", "#4cc2ff", "#8f6bff", "#ff6fb5"];
   function kelvinRgb(k) {   // Tanner Helland approximation, good enough for a glow color
     const t = k / 100; let r, g, b;
@@ -143,7 +184,7 @@
     if (isLight(d)) return [isGroup(d) ? "home_iot_device" : "lightbulb", ""];
     if (has(d, "alarm_panel")) { const s = val(d, "alarm_panel"); return ["shield", s === "triggered" ? "bad" : s && s !== "disarmed" ? "active" : ""]; }
     if (k === "aqi_station") { const a = val(d, "aqi"); return ["aq", a > 150 ? "bad" : a > 100 ? "warn" : ""]; }
-    if (has(d, "smoke") || coAlarm(d) || has(d, "heat")) return ["detector_smoke", isAlarm(d) ? "bad" : ""];
+    if (has(d, "smoke") || coAlarm(d) || has(d, "heat") || has(d, "gas")) return ["detector_smoke", isAlarm(d) ? "bad" : ""];
     if (has(d, "leak")) return val(d, "leak") ? ["water_damage", "bad"] : ["water_drop", ""];
     if (has(d, "valve")) return ["valve", val(d, "valve") === "open" ? "active" : ""];
     if (has(d, "lock")) return val(d, "lock") === "unlocked" ? ["lock_open", "warn"] : ["lock", ""];
@@ -151,6 +192,7 @@
     if (d.source === "ring" || d.attributes?.has_snapshot) return [has(d, "light") ? "lightbulb" : "videocam", val(d, "motion") ? "active" : ""];
     if (has(d, "contact")) return val(d, "contact") === "open" ? ["door_open", "warn"] : ["door_front", ""];
     if (has(d, "presence")) return ["sensor_occupied", val(d, "presence") ? "active" : ""];
+    if (has(d, "occupancy") && typeof val(d, "occupancy") !== "number") return ["sensor_occupied", val(d, "occupancy") ? "active" : ""];
     if (has(d, "motion")) return ["directions_run", val(d, "motion") ? "active" : ""];
     if (has(d, "switch")) return ["power_settings_new", val(d, "switch") ? "active" : ""];
     if (has(d, "wind_speed") || has(d, "rain_daily")) return ["partly_cloudy_day", ""];
@@ -174,6 +216,7 @@
     if (isUps(d)) return { online: ["Online", ""], on_battery: ["On battery", "warn"], low_battery: ["Battery low", "bad"], offline: ["Off", "warn"] }[val(d, "ups_status")] || ["Unknown", ""];
     if (has(d, "alarm_panel")) { const s = val(d, "alarm_panel"); return [ALARM_LABEL[s] || s || "Unknown", s === "triggered" ? "bad" : ""]; }
     if (has(d, "smoke") || coAlarm(d)) return val(d, "smoke") ? ["Smoke detected", "bad"] : val(d, "co") ? ["Carbon monoxide", "bad"] : ["All clear", ""];
+    if (has(d, "gas")) return val(d, "gas") ? ["Gas detected", "bad"] : ["All clear", ""];
     if (has(d, "heat")) return val(d, "heat") ? ["High heat", "bad"] : ["Normal", ""];
     if (has(d, "leak")) return val(d, "leak") ? ["Leak detected", "bad"] : ["Dry", ""];
     if (has(d, "lock")) return val(d, "lock") === "locked" ? ["Locked", ""] : val(d, "lock") ? ["Unlocked", "warn"] : ["Unknown", ""];
@@ -424,8 +467,28 @@
       <h2>${editing() && !isFav ? `<span class="grip">${icon("drag_indicator")}</span>` : ""}${esc(name)}</h2>
       <div class="grid" data-room="${esc(name)}">${items.map(card).join("") || (isFav ? `<p class="drop-hint">Drag cards here to pin them to the top of Home</p>` : "")}</div></section>`;
     const fav = favorites && (pinned.length || editing()) ? render1(FAV, pinned, true) : "";
+    if (gbNow === "type") return extraFirst + fav + typeSections(shown.filter(d => !pinnedIds.has(d.id)), fallback);
     return extraFirst + fav + orderRooms(byRoom).map(r => render1(r, orderDevices(r, byRoom[r], fallback))).join("");
   }
+  // ---------- Group by: Room | Type (chosen per page, saved on this device) ----------
+  const groupable = () => view !== "settings" && !pluginPages[view] && (!PAGES.has(view) || view === "lights" || view === "battery");
+  const groupBy = () => groupable() && load("groupBy:" + view, load("groupByDefault", "room")) === "type" ? "type" : "room";
+  let gbNow = "room";                     // groupBy() of the page being drawn
+  const roomOf = d => d.room || "Other";
+  // inside a type section: by room (in the user's room order), then the user's card order, then the page's own order
+  const byRoomThen = fallback => (a, b) => roomRank(roomOf(a)) - roomRank(roomOf(b)) || (roomOf(a) === "Other") - (roomOf(b) === "Other")
+    || roomOf(a).localeCompare(roomOf(b)) || devRank(roomOf(a), a.id) - devRank(roomOf(b), b.id) || fallback(a, b);
+  function typeGroups(list, fallback = (a, b) => a.name.localeCompare(b.name)) {      // -> [[typeId, devices]] in display order
+    const by = {};
+    for (const d of list) (by[deviceType(d)] ||= []).push(d);
+    return Object.keys(by).sort((a, b) => (!editing() && by[b].some(isAlarm) - by[a].some(isAlarm)) || TYPE_RANK[a] - TYPE_RANK[b])
+      .map(t => [t, by[t].sort(byRoomThen(fallback))]);
+  }
+  const typeHead = (t, count) => { const [, label, ic] = TYPE_INFO[t] || TYPE_INFO.other;
+    return `<span class="tsec-ic">${icon(ic)}</span><span>${esc(label)}</span><small class="tsec-n">${count}</small>`; };
+  // data-fixed: type sections can't be dragged, and cards can't be dropped into them (moving = changing rooms)
+  const typeSections = (list, fallback) => typeGroups(list, fallback).map(([t, items]) => `<section class="room tsec" data-type="${t}" data-fixed>
+      <h2>${typeHead(t, items.length)}</h2><div class="grid">${items.map(card).join("")}</div></section>`).join("");
 
   function card(d) {
     if (cardStyle === "minimal") return miniCard(d);
@@ -435,7 +498,7 @@
     const lit = isLight(d) && val(d, "light");
     return `<article class="card ${isAlarm(d) ? "alarm" : ""} ${d.online ? "" : "offline"} ${lit ? "lit" : ""} ${isGroup(d) ? "group" : ""}" data-id="${esc(d.id)}" ${lit ? `style="--lit:${glow(d)}"` : ""}>
       <div class="card-head"><div class="avatar ${tone}">${icon(ic, !!tone)}</div>
-        <div class="titles"><div class="name" role="button" tabindex="0" title="${esc(d.name)} — details">${esc(d.name)}</div><div class="src">${esc(srcLabel(d))}${d.online ? "" : " · Offline"}</div></div>
+        <div class="titles"><div class="name" role="button" tabindex="0" title="${esc(d.name)} — details">${esc(d.name)}</div><div class="src">${gbNow === "type" ? `<span class="croom">${esc(d.room || "No room")}</span> · ` : ""}${esc(srcLabel(d))}${d.online ? "" : " · Offline"}</div></div>
         <button class="card-edit" data-edit aria-label="Edit">${icon("edit")}</button>${headSwitch(d)}</div>
       ${fitCard(d, sc)}
       <div class="updated">${updated ? ago(updated) : ""}</div></article>`;
@@ -716,7 +779,7 @@
       <div class="mini-head"><span class="mini-ic ${tone}">${icon(ic, !!tone)}</span><span class="name" title="${esc(d.name)}">${esc(d.name)}</span>
         <button class="card-edit" data-edit aria-label="Edit">${icon("edit")}</button>${quickAction(d)}</div>
       <div class="mini-big">${big}</div>
-      <div class="mini-small">${esc(small) || "&nbsp;"}${lowBat}${d.online ? "" : `<span class="mini-bat">${icon("wifi_off")}Offline</span>`}</div>
+      <div class="mini-small">${gbNow === "type" ? `<span class="croom">${esc(d.room || "No room")}</span>${small ? " · " : ""}` : ""}${esc(small) || (gbNow === "type" ? "" : "&nbsp;")}${lowBat}${d.online ? "" : `<span class="mini-bat">${icon("wifi_off")}Offline</span>`}</div>
     </article>`;
   }
 
@@ -724,7 +787,8 @@
     if (t === "battery") return val(d, "battery") != null || val(d, "battery_low") != null;
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
-    const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && (t !== "controls" || d.capabilities[k].writable) && !(k === "co" && !coAlarm(d)));
+    const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && (t !== "controls" || d.capabilities[k].writable) && !(k === "co" && !coAlarm(d))
+      && !(k === "occupancy" && isThermostat(d)));   // a thermostat's built-in occupancy sensor doesn't make it a security device
   }
   const autoTabs = d => TAB_IDS.filter(t => typeMatch(d, t));
   const tabsOf = d => Array.isArray(d.categories) ? d.categories : autoTabs(d);
@@ -756,12 +820,15 @@
     list.sort((a, b) => { const x = s(a), y = s(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; });
     const th = (key, label, cls = "") => `<th class="${cls} ${sort.key === key ? "sorted" : ""}" ${key ? `data-sort="${key}"` : ""}>${label}${
       sort.key === key ? `<span class="arrow">${icon(sort.dir > 0 ? "arrow_upward" : "arrow_downward")}</span>` : ""}</th>`;
-    const rows = list.map(d => {
+    let groups = [[null, list]];
+    if (gbNow === "type") { const by = {}; list.forEach(d => (by[deviceType(d)] ||= []).push(d));
+      groups = Object.keys(by).sort((a, b) => TYPE_RANK[a] - TYPE_RANK[b]).map(t => [t, by[t]]); }
+    const rows = groups.map(([t, items]) => (t ? `<tr class="tgroup" data-type="${t}"><th colspan="8" scope="colgroup"><span class="tg">${typeHead(t, items.length)}</span></th></tr>` : "") + items.map(d => {
       const [ic, tone] = deviceIcon(d);
       const st = statusOf(d), rd = readingText(d);
       const b = val(d, "battery"), bl = val(d, "battery_low");
       return `<tr data-id="${esc(d.id)}" class="${isAlarm(d) ? "alarm" : ""} ${d.online ? "" : "offline"}">
-        <td class="c-name"><div class="dev"><span class="avatar ${tone}">${icon(ic, !!tone)}</span><div><b>${esc(d.name)}</b><small>${esc(srcLabel(d))}${d.online ? "" : " · Offline"}</small></div>
+        <td class="c-name"><div class="dev"><span class="avatar ${tone}">${icon(ic, !!tone)}</span><div><b>${esc(d.name)}</b><small>${esc(srcLabel(d))}${d.room ? `<span class="rm-inline"> · ${esc(d.room)}</span>` : ""}${d.online ? "" : " · Offline"}</small></div>
           <button class="card-edit" data-edit aria-label="Edit">${icon("edit")}</button></div></td>
         <td class="c-room">${esc(d.room || "—")}</td>
         <td class="muted c-src">${esc(srcLabel(d))}</td>
@@ -770,7 +837,7 @@
         <td class="c-bat">${b != null ? levelBar(b) : bl != null ? `<span class="val ${bl ? "bad" : ""}">${bl ? "Low" : "OK"}</span>` : `<span class="muted">—</span>`}</td>
         <td class="muted c-upd">${ago(lastUpdated(d))}</td>
         <td class="c-ctl">${controlsBlock(d, true)}</td></tr>`;
-    }).join("");
+    }).join("")).join("");
     return `<div class="table-wrap"><table class="dtable devtable"><thead><tr>${th("name", "Device", "c-name")}${th("room", "Room", "c-room")}${th("source", "Integration", "c-src")}${th("status", "Status", "c-status")}${th("", "Details", "c-det")}${th("battery", "Battery", "c-bat")}${th("updated", "Updated", "c-upd")}${th("", "Controls", "c-ctl")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   const levelBar = raw => { const b = Math.max(0, Math.min(100, Number(raw) || 0));
@@ -813,9 +880,9 @@
           : goTile("security", "good", "shield_lock", "Secure", `${doors.length} closed · ${locks.length} locked`);
       }
       case "safety": {
-        const det = list.filter(d => ["smoke", "heat"].some(k => has(d, k)) || coAlarm(d)), panel = list.find(d => has(d, "alarm_panel"));
+        const det = list.filter(d => ["smoke", "heat", "gas"].some(k => has(d, k)) || coAlarm(d)), panel = list.find(d => has(d, "alarm_panel"));
         if (!det.length && !panel) return "";
-        const firing = det.filter(d => ["smoke", "co", "heat"].some(k => val(d, k) === true));
+        const firing = det.filter(d => ["smoke", "co", "gas", "heat"].some(k => val(d, k) === true));
         if (firing.length || (panel && val(panel, "alarm_panel") === "triggered")) return goTile("security", "bad", "local_fire_department", "Alarm!", names(firing.length ? firing : [panel]));
         const mode = panel ? (ALARM_LABEL[val(panel, "alarm_panel")] || val(panel, "alarm_panel")) : null;
         return goTile("security", "good", panel && val(panel, "alarm_panel") !== "disarmed" ? "shield" : "detector_smoke", mode || "All clear",
@@ -993,13 +1060,22 @@
       tile("", "sensor_door", `${closed} closed`, `${c.length} contact sensor${c.length === 1 ? "" : "s"}`) +
       tile("", "battery_alert", `${c.filter(batteryLow).length}`, "need new batteries");
   }
+  // Alerts under the title: one chip per device while there are few, else one chip per kind ("11 offline") that
+  // opens the list. Never a row of identical icon-only chips.
+  let alertsOpen = null;
   function renderChips(list) {
-    const chips = [];
-    for (const d of list) {
-      if (batteryLow(d) && view !== "battery") chips.push(["warn", "battery_alert", `${d.name} battery low`]);
-      if (!d.online) chips.push(["warn", "wifi_off", `${d.name} offline`]);
+    const low = view !== "battery" ? list.filter(batteryLow) : [], off = list.filter(d => !d.online);
+    const kinds = [["low", "battery_alert", low, n => `${n} low batter${n === 1 ? "y" : "ies"}`, d => `${d.name} battery low`],
+                   ["off", "wifi_off", off, n => `${n} offline`, d => `${d.name} offline`]];
+    const out = [];
+    for (const [k, ic, devs, sum, one] of kinds) {
+      if (!devs.length) continue;
+      if (devs.length <= 2) { devs.forEach(d => out.push(`<button type="button" class="chip warn" data-id="${esc(d.id)}" data-open-device>${icon(ic, true)}${esc(one(d))}</button>`)); continue; }
+      const open = alertsOpen === k;
+      out.push(`<button type="button" class="chip warn" data-alerts-toggle="${k}" aria-expanded="${open}">${icon(ic, true)}${esc(sum(devs.length))}<span class="chev ${open ? "up" : ""}">${icon("keyboard_arrow_down")}</span></button>`);
+      if (open) out.push(`<div class="alert-list">${devs.map(d => `<button type="button" class="chip" data-id="${esc(d.id)}" data-open-device>${esc(d.name)}${d.room ? ` <small>${esc(d.room)}</small>` : ""}</button>`).join("")}</div>`);
     }
-    $("#alerts").innerHTML = chips.map(([c, ic, t]) => `<span class="chip ${c}">${icon(ic, true)}${esc(t)}</span>`).join("");
+    $("#alerts").innerHTML = out.join("");
   }
 
   // ---------- battery page ----------
@@ -1007,7 +1083,9 @@
     const bat = list.filter(d => val(d, "battery") != null || val(d, "battery_low") != null);
     const lvl = d => val(d, "battery") ?? (val(d, "battery_low") ? 10 : 100);
     bat.sort((a, b) => lvl(a) - lvl(b) || a.name.localeCompare(b.name));
-    const groups = [["Replace soon", d => lvl(d) <= 25], ["Getting low", d => lvl(d) > 25 && lvl(d) <= 50], ["Good", d => lvl(d) > 50]];
+    const groups = gbNow === "type" ? typeGroups(bat).map(([t, items]) => [typeHead(t, items.length), d => items.includes(d), true])
+      : [["Replace soon", d => lvl(d) <= 25], ["Getting low", d => lvl(d) > 25 && lvl(d) <= 50], ["Good", d => lvl(d) > 50]];
+    if (gbNow === "type") bat.sort((a, b) => lvl(a) - lvl(b) || byRoomThen((x, y) => x.name.localeCompare(y.name))(a, b));
     const withPct = bat.filter(d => val(d, "battery") != null);
     const avg = withPct.length ? Math.round(withPct.reduce((a, d) => a + val(d, "battery"), 0) / withPct.length) : null;
     const low = bat.filter(d => lvl(d) <= 25);
@@ -1023,8 +1101,8 @@
         ${b != null ? levelBar(b) : `<span class="level ${val(d, "battery_low") ? "low" : ""}"><span class="bar"><i style="width:${val(d, "battery_low") ? 10 : 100}%"></i></span><span>${val(d, "battery_low") ? "Low" : "OK"}</span></span>`}
         <span class="when">${ago(lastUpdated(d))}</span></div>`;
     };
-    $("#rooms").innerHTML = bat.length ? `<div class="batt-list">${groups.map(([label, fn]) => {
-      const g = bat.filter(fn); return g.length ? `<div class="batt-group">${label} · ${g.length}</div>${g.map(row).join("")}` : ""; }).join("")}</div>`
+    $("#rooms").innerHTML = bat.length ? `<div class="batt-list">${groups.map(([label, fn, isType]) => {
+      const g = bat.filter(fn); return g.length ? `<div class="batt-group ${isType ? "tgroup" : ""}">${isType ? label : `${label} · ${g.length}`}</div>${g.map(row).join("")}` : ""; }).join("")}</div>`
       : `<p class="empty">No battery-powered devices yet.</p>`;
   }
 
@@ -1041,6 +1119,7 @@
       $("#rooms").innerHTML = `<div class="empty-state">${icon("lightbulb")}<h3>No lights yet</h3><p>Pair your Philips Hue bridge under Settings → Philips Hue. Zigbee2MQTT bulbs show up automatically through MQTT.</p>
         <button class="tonal-btn" data-goto="settings">${icon("settings")}Open Settings</button></div>`; return;
     }
+    if (gbNow === "type") { $("#rooms").innerHTML = typeSections([...groups, ...lights], (a, b) => a.name.localeCompare(b.name)); initSortables(); return; }
     const groupSec = groups.length ? `<section class="room" data-fixed><h2>Rooms &amp; zones</h2><div class="grid">${groups.sort((a, b) => a.name.localeCompare(b.name)).map(card).join("")}</div></section>` : "";
     $("#rooms").innerHTML = roomSections(lights, { extraFirst: groupSec });
     initSortables();
@@ -1059,6 +1138,8 @@
     source: ["Integration", d => `${srcLabel(d)}|${d.name.toLowerCase()}`, srcLabel],
     updated: ["Last update", d => -lastUpdated(d), null],
     battery: ["Battery", d => val(d, "battery") ?? (val(d, "battery_low") === true ? 5 : 999), null],
+    status: ["Offline first", d => `${d.online ? 1 : 0}|${d.online ? "" : String(1e12 - lastUpdated(d)).padStart(14, "0")}|${d.name.toLowerCase()}`,
+      d => d.online ? "Online" : "Offline"],
   };
   function devicesPage() {
     $("#summary").innerHTML = "";
@@ -1068,7 +1149,7 @@
         ${devSelect("source", "Integration", [...new Set([...devices.values()].map(srcLabel))].sort().map(x => [x, x]))}
         ${devSelect("type", "Type", Object.entries(TYPE_NAMES))}
         ${devSelect("room", "Room", [...new Set([...devices.values()].map(d => d.room || "No room"))].sort().map(x => [x, x]))}
-        ${[["changed", "Tabs changed"], ["hidden", "Hidden"]].map(([k, l]) =>
+        ${[["offline", `Offline (${[...devices.values()].filter(d => !d.online).length})`], ["changed", "Tabs changed"], ["hidden", "Hidden"]].map(([k, l]) =>
           `<button type="button" class="fchip ${devFilter === k ? "on" : ""}" data-devfilter="${k}">${devFilter === k ? icon("check") : ""}${l}</button>`).join("")}
         <span class="devsort"><label class="selchip">${icon("swap_vert")}<span>Sort: ${(DEV_SORTS[devSort.key] || DEV_SORTS.room)[0]}</span><select id="devsort">${Object.entries(DEV_SORTS).map(([k, [l]]) =>
           `<option value="${k}" ${devSort.key === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -1087,7 +1168,7 @@
     const box = $(".devlist"); if (!box) return;
     const q = devQuery.trim().toLowerCase();
     const all = [...devices.values()].filter(d => !q || `${d.name} ${d.room} ${srcLabel(d)} ${d.model}`.toLowerCase().includes(q))
-      .filter(d => devFilter === "changed" ? Array.isArray(d.categories) : devFilter === "hidden" ? d.hidden : true)
+      .filter(d => devFilter === "changed" ? Array.isArray(d.categories) : devFilter === "hidden" ? d.hidden : devFilter === "offline" ? !d.online : true)
       .filter(d => !devSel.source || srcLabel(d) === devSel.source)
       .filter(d => !devSel.room || (d.room || "No room") === devSel.room)
       .filter(d => !devSel.type || (devSel.type === "none" ? !tabsOf(d).length : devSel.type === "battery" ? typeMatch(d, "battery")
@@ -1097,7 +1178,7 @@
     const counts = { all: devices.size, changed: [...devices.values()].filter(d => Array.isArray(d.categories)).length,
       hidden: [...devices.values()].filter(d => d.hidden).length };
     box.innerHTML = `<details class="devnote" ${load("devNoteClosed", "") ? "" : "open"}><summary>${icon("info")}<span>How tabs work${counts.changed || counts.hidden ? ` · ${[counts.changed ? `${counts.changed} changed` : "", counts.hidden ? `${counts.hidden} hidden` : ""].filter(Boolean).join(" · ")}` : ""}</span>${icon("keyboard_arrow_down")}</summary>
-      <p>Tabs are picked automatically from what each device reports. Tap a tab to add or remove a device; changed devices are marked <b>Custom</b> and can be reset to automatic. Every device always appears on Home unless it's hidden.</p></details>
+      <p>Tabs are picked automatically from what each device reports. Security includes locks, door and window sensors, alarm panels, cameras, smoke, CO and gas alarms, and motion and presence sensors. Tap a tab to add or remove a device; changed devices are marked <b>Custom</b> and can be reset to automatic. Every device always appears on Home unless it's hidden.</p></details>
       <div class="devhead"><span>Device</span><span>Room</span><span>Shows in tabs</span><span>Visible</span></div>` +
       (all.map((d, i) => {
         const [ic, tone] = deviceIcon(d), tabs = tabsOf(d), custom = Array.isArray(d.categories), auto = autoTabs(d);
@@ -1324,7 +1405,7 @@
   function appearanceSummary() {
     return [{ light: "Light", dark: "Dark", auto: "Auto" }[load("mode", "auto")], root.dataset.seed[0].toUpperCase() + root.dataset.seed.slice(1),
       `°${unit}`, cardStyle === "minimal" ? "Minimal cards" : "Standard cards", mode === "table" ? "Table" : "Cards",
-      `${(CHART_STYLES.find(c => c[0] === chartStyle) || CHART_STYLES[0])[1]} charts`].join(" · ");
+      `${(CHART_STYLES.find(c => c[0] === chartStyle) || CHART_STYLES[0])[1]} charts`, load("groupByDefault", "room") === "type" ? "By type" : ""].filter(Boolean).join(" · ");
   }
   function renderSettings() {
     $("#summary").innerHTML = ""; $("#alerts").innerHTML = "";
@@ -1590,6 +1671,7 @@
           <div class="frow chartrow"><span>Charts</span><div class="chart-picks" id="chart-seg">${CHART_STYLES.map(([k, l]) => `<button type="button" class="chart-pick ${chartStyle === k ? "on" : ""}" data-chart="${k}" aria-pressed="${chartStyle === k}">
             <svg viewBox="0 0 72 28" class="spark c-${k}" preserveAspectRatio="none">${plotSvg([[[0, 20], [9, 14], [18, 17], [27, 8], [36, 11], [45, 5], [54, 13], [63, 9], [72, 12]]], 28, k, 5)}</svg><small>${l}</small></button>`).join("")}</div></div>
           <div class="frow"><span>Layout</span>${seg("layout-seg", [["cards", "Cards", "grid_view"], ["table", "Table", "table_rows"]], mode, "layout")}</div>
+          <div class="frow"><span>Group by<small class="muted">for pages you haven't set yet</small></span>${seg("groupby-seg", [["room", "Room", "door_front"], ["type", "Type", "category"]], load("groupByDefault", "room"), "gbdefault")}</div>
         </section>`;
     } else if (["account", "users", "security"].includes(settingsSub)) {   // accounts.js draws these
       const pg = settingsSub === "account" || !isAdmin() ? "account" : "users";
@@ -1688,8 +1770,15 @@
   function renderEditBar() {
     let bar = $("#editbar");
     if (!editing() || PAGES.has(view) && view !== "lights" || mode === "table") { bar?.remove(); return; }
-    if (!bar) { $("#rooms").insertAdjacentHTML("beforebegin", `<div id="editbar" class="editbar">${icon("edit")}<span class="short"><b>Arranging.</b> Drag cards and room titles. Drop on ★ Favorites to pin.</span><span class="long"><b>Arranging.</b> Drag cards to reorder or move them between rooms. Drag a room by its title to reorder rooms${view === "all" ? ". Drag cards into Favorites to pin them to the top" : ""}. Use ✎ on a card to rename or hide it.</span>
-      <button class="text-btn" data-reset-layout>Reset</button><button class="filled-btn" data-done-edit>${icon("check")}Done</button></div>`); hydrateIcons($("#editbar")); }
+    const byType = gbNow === "type", key = `${view}|${gbNow}`;
+    if (bar && bar.dataset.key === key) return;
+    bar?.remove();
+    const text = byType
+      ? `<span class="short"><b>Arranging.</b> Switch to Group by room to move cards between rooms.</span><span class="long"><b>Arranging.</b> Cards are grouped by type. Switch to Group by room to move cards between rooms or reorder them. Use ✎ on a card to rename, move or hide it${view === "all" ? ", or pin it to Favorites" : ""}.</span>
+        <button class="text-btn" data-groupby="room">${icon("door_front")}Group by room</button>`
+      : `<span class="short"><b>Arranging.</b> Drag cards and room titles. Drop on ★ Favorites to pin.</span><span class="long"><b>Arranging.</b> Drag cards to reorder or move them between rooms. Drag a room by its title to reorder rooms${view === "all" ? ". Drag cards into Favorites to pin them to the top" : ""}. Use ✎ on a card to rename or hide it.</span>
+        <button class="text-btn" data-reset-layout>Reset</button>`;
+    $("#rooms").insertAdjacentHTML("beforebegin", `<div id="editbar" class="editbar ${byType ? "bytype" : ""}" data-key="${esc(key)}">${icon(byType ? "category" : "edit")}${text}<button class="filled-btn" data-done-edit>${icon("check")}Done</button></div>`);
   }
   function initSortables() {
     if (!editing() || !window.Sortable || mode === "table") return;
@@ -1744,6 +1833,7 @@
     destroySortables();
     renderViewNav();
     if (view.startsWith("v:") && !customView() && layout.views) { view = "all"; store("filter", view); }
+    gbNow = groupBy(); document.body.dataset.groupBy = gbNow;
     renderHeader();
     renderEditBar();
     renderBadges();
@@ -1823,6 +1913,10 @@
     $$("#nav [data-f]").forEach(b => cur(b, b.dataset.f === view));
     $(".more-btn").classList.toggle("on", !$(`#nav [data-f="${CSS.escape(view)}"][data-phone]`));
     $$("#more [data-f]").forEach(b => cur(b, b.dataset.f === view));
+    const gb = $("#groupby"), gbOn = groupable(); gb.hidden = !gbOn;
+    if (gbOn && gb.dataset.key !== gbNow) { gb.dataset.key = gbNow;
+      gb.querySelector(".segmented").innerHTML = [["room", "Room", "door_front"], ["type", "Type", "category"]].map(([v, l, ic]) =>
+        `<button type="button" data-groupby="${v}" class="${gbNow === v ? "on" : ""}" aria-pressed="${gbNow === v}" title="Group by ${l.toLowerCase()}">${icon(ic, gbNow === v)}<span class="gl">${l}</span></button>`).join(""); }
     const vm = $("#viewmode"); vm.innerHTML = icon(mode === "table" ? "grid_view" : "table_rows");
     vm.title = vm.ariaLabel = mode === "table" ? "Card view" : "Table view";
   }
@@ -2326,6 +2420,7 @@
       return;
     }
     if (t.closest("[data-snapshot]")) return showSnapshot(t.closest("[data-id]").dataset.id);
+    const at = t.closest("[data-alerts-toggle]"); if (at) { alertsOpen = alertsOpen === at.dataset.alertsToggle ? null : at.dataset.alertsToggle; return schedule(); }
     if (t.closest("[data-open-device]") || (t.closest(".card .name") && !editing())) return openDevicePanel(t.closest("[data-id]").dataset.id);
     const hb = t.closest("[data-hist]"); if (hb) { const owner = hb.closest("[data-id]"); if (owner?.dataset.id && devices.has(owner.dataset.id)) return openDevicePanel(owner.dataset.id, "history", hb.dataset.hist); return; }
     const pt = t.closest("[data-ptab]");
@@ -2422,6 +2517,7 @@
     const ch = t.closest("#chart-seg [data-chart]");
     if (ch) { chartStyle = ch.dataset.chart; store("chartStyle", chartStyle); renderSettings(); schedule(); return; }
     const cs = t.closest("#style-seg [data-cstyle]"); if (cs) { cardStyle = cs.dataset.cstyle; store("cardStyle", cardStyle); document.body.dataset.cardStyle = cardStyle; renderSettings(); return; }
+    const gd = t.closest("#groupby-seg [data-gbdefault]"); if (gd) { store("groupByDefault", gd.dataset.gbdefault); renderSettings(); return; }
     const ls = t.closest("#layout-seg [data-layout]"); if (ls) { mode = ls.dataset.layout; store("viewmode", mode); renderSettings(); renderHeader(); return; }
   });
 
@@ -2477,6 +2573,14 @@
     if (e.target.closest("[data-done-edit]")) { setEditing(false); snack("Layout saved"); }
     if (e.target.closest("[data-reset-layout]") && await confirmAction("Reset layout?", "Rooms and devices go back to automatic order and Favorites are cleared. Room assignments stay.", "dashboard")) {
       layout = { rooms: [], order: {}, pinned: [], views: layout.views || [] }; await saveLayout(); schedule(); snack("Layout reset"); }
+  });
+  document.addEventListener("click", e => {
+    const g = e.target.closest("[data-groupby]"); if (!g || !groupable()) return;
+    const v = g.dataset.groupby; if (v === gbNow) return;
+    store("groupBy:" + view, v); document.body.classList.remove("quiet");
+    const refocus = g.closest("#groupby") ? `#groupby [data-groupby="${v}"]` : null;
+    render(); if (refocus) $(refocus)?.focus();
+    snack(v === "type" ? "Grouped by device type" : "Grouped by room");
   });
   $("#viewmode").onclick = () => { mode = mode === "table" ? "cards" : "table"; store("viewmode", mode); document.body.classList.remove("quiet"); schedule(); };
   addEventListener("scroll", () => $(".appbar").classList.toggle("scrolled", scrollY > 24), { passive: true });

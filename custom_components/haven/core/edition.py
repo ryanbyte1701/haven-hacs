@@ -5,8 +5,9 @@ this same core inside Home Assistant. Its wrapper (custom_components/haven/__ini
 before it imports anything from the core; nothing else in the environment changes it. See docs/hacs.md.
 
 In the HACS edition:
-- devices come only from Home Assistant itself (app/adapters/hass_local.py); Haven's own integrations
-  (YoLink, Hue, MQTT, ...) are not even shipped;
+- devices come from Home Assistant itself (app/adapters/hass_local.py); Haven's brand integrations
+  (YoLink, Hue, MQTT, ...) are not even shipped. Only a few that aren't brands ship too (HACS_ADAPTER_MODULES):
+  the NUT client for UPSes, the Open-Meteo weather forecast and outdoor air quality;
 - sign-in is Home Assistant's: HA admins are Haven admins, everyone else is a Regular user;
 - the Settings page lists only what applies (no accounts, date & time, backups, high availability, demo);
 - the Ecowitt push endpoint, /metrics and the high-availability API are not reachable.
@@ -19,8 +20,10 @@ EDITION = "hacs" if os.getenv("HAVEN_EDITION", "").strip().lower() == "hacs" els
 HACS = EDITION == "hacs"
 
 # Adapter modules (app/adapters/<name>.py) per edition. The HACS edition is default-deny: only these load
-# (and tools/hacs/manifest.py decides which files are shipped at all).
-HACS_ADAPTER_MODULES = frozenset({"hass_local"})
+# (and tools/hacs/manifest.py HACS_ADAPTERS decides which files are shipped at all; keep the two in step).
+# hass_local: Home Assistant's devices. nut, weather, airquality: Haven's own UPS monitoring (NUT protocol client),
+# forecast (Open-Meteo) and outdoor air quality, for people who don't have those in Home Assistant.
+HACS_ADAPTER_MODULES = frozenset({"hass_local", "nut", "weather", "airquality"})
 # Modules that only work in the other edition: hass_local needs a running Home Assistant (`hass`).
 OG_SKIP_ADAPTER_MODULES = frozenset({"hass_local"})
 
@@ -57,7 +60,7 @@ def trim_settings(schema: list[dict], adapters) -> None:
     if not HACS:
         return
     keep = set(adapters) | set(HACS_CORE_SECTIONS)
-    schema[:] = [s for s in schema if s["id"] in keep]
+    schema[:] = sorted((s for s in schema if s["id"] in keep), key=lambda s: s["id"] != "hass")   # Home Assistant first
     for s in schema:
         hidden = HACS_HIDDEN_FIELDS.get(s["id"])
         if hidden:
