@@ -541,12 +541,12 @@ class SqliteStore:
                         (start, width, cap, *ids, start, end)):
                     row = out.setdefault(dev, ([None] * n, None))[0]
                     row[min(n - 1, max(0, int(b)))] = v
-                for dev, v in self._db.execute(
-                        f"SELECT s.device, s.v FROM samples s WHERE s.cap=? AND s.binary=0 AND s.device IN ({marks}) "  # noqa: S608
-                        "AND s.ts=(SELECT MAX(ts) FROM samples WHERE device=s.device AND cap=s.cap AND ts<?)",
-                        (cap, *ids, start)):
-                    vals, _ = out.get(dev, ([None] * n, None))
-                    out[dev] = (vals, v)
+                for dev in ids:                                  # the last reading before the window: one index seek each
+                    row = self._db.execute("SELECT v FROM samples WHERE device=? AND cap=? AND binary=0 AND ts<? "
+                                           "ORDER BY ts DESC LIMIT 1", (dev, cap, start)).fetchone()
+                    if row is not None:
+                        vals, _ = out.get(dev, ([None] * n, None))
+                        out[dev] = (vals, row[0])
         return out
 
     async def bucketed(self, device_ids: list[str], cap: str, start: float, end: float, n: int) -> dict:

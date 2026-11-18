@@ -179,7 +179,7 @@
   // Estimated row heights (px) so cards can fit content into a fixed height.
   const rowH = html => html.startsWith('<div class="slider-row') ? 28 : html.startsWith('<div class="colors') ? 26 :
     html.startsWith('<div class="tonal-row') && innerWidth < 600 && (html.match(/class="tonal-btn"/g) || []).length > 2 ? 88 : 40;   // wraps to two lines
-  const controlsBlock = (d, compact = false) => controlRows(d).join("");
+  const controlsBlock = d => controlRows(d).join("");
   function controlRows(d) {
     const c = d.capabilities, out = [];
     const seg = (capName, items) => `<div class="segmented">${items.map(([v, label, ic, on]) =>

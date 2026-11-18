@@ -1,3 +1,13 @@
+// Copy text: the clipboard API only exists on https and localhost, so fall back to a hidden text box (plain http)
+async function copyText(text) {
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; } } catch { /* try the fallback */ }
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove(); return ok;
+}
+
 // Haven dashboard, part 10 of 11: Clicks, changes, keyboard and in-place updates.
 // The parts are plain scripts that index.html loads in order; they share one scope (no build step).
 // A part can use anything earlier parts declare. Code that runs while the page loads (not inside a
@@ -53,7 +63,10 @@
           ...((data.recent_warnings || []).map(w => `${w.level} ${w.logger}: ${w.message}`))];
         const el = $("#diag-sum"); if (el) el.textContent = sumText;
         const href = (window.HAVEN_URL || (p => p))(data.path);
-        if (what === "copy") { await navigator.clipboard.writeText(lines.join("\n")); snack("Summary copied"); }
+        if (what === "copy") {
+          if (await copyText(lines.join("\n"))) snack("Summary copied");
+          else { if (el) { el.style.whiteSpace = "pre-wrap"; el.style.userSelect = "all"; el.textContent = lines.join("\n"); } snack("Couldn't copy here: select the text above and copy it"); }
+        }
         else if (what === "gh") {
           const body = `**What happened**\n\n<!-- describe the problem -->\n\n**Diagnostics summary** (anonymous)\n\n\`\`\`\n${lines.join("\n").slice(0, 5000)}\n\`\`\`\n\n` +
             `<!-- Drag the downloaded haven-diagnostics-….json file here before submitting -->\n`;
@@ -144,7 +157,7 @@
     if (t.closest("[data-ha-failover]")) return haFailover();
     if (t.closest("[data-ha-adopt]")) return haAdopt();
     const cp = t.closest("[data-copy]");
-    if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); snack("Copied"); } catch { snack("Couldn't copy here. Select the text and copy it instead."); } return; }
+    if (cp) { snack(await copyText(cp.dataset.copy) ? "Copied" : "Couldn't copy here. Select the text and copy it instead."); return; }
     // settings page
     const card = t.closest(".set-card[data-section]");
     if (card) {

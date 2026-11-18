@@ -57,7 +57,7 @@
         if (!det.length && !panel) return "";
         const firing = det.filter(d => ["smoke", "co", "gas", "heat"].some(k => val(d, k) === true));
         if (firing.length || (panel && val(panel, "alarm_panel") === "triggered")) return goTile("security", "bad", "local_fire_department", "Alarm!", names(firing.length ? firing : [panel]), "", (firing.length ? firing : [panel]).map(d => d.id));
-        const mode = panel ? (ALARM_LABEL[val(panel, "alarm_panel")] || val(panel, "alarm_panel")) : null;
+        const mode = panel ? esc(ALARM_LABEL[val(panel, "alarm_panel")] || val(panel, "alarm_panel")) : null;
         return goTile("security", "good", panel && val(panel, "alarm_panel") !== "disarmed" ? "shield" : "detector_smoke", mode || "All clear",
           det.length ? `${det.length} detector${det.length > 1 ? "s" : ""} OK` : "Alarm system", mode && det.length ? "Detectors OK" : "", [...det, ...(panel ? [panel] : [])].map(d => d.id));
       }
@@ -114,12 +114,12 @@
       case "ev": {
         const ev = list.find(d => kindOf(d) === "ev_charger"); if (!ev) return "";
         const st = val(ev, "charger_status");
-        return goTile("controls", st === "charging" ? "primary" : "", "ev_station", st === "charging" ? `${n((val(ev, "power") || 0) / 1000)}<small> kW</small>` : pretty(st || "idle"), ev.name,
+        return goTile("controls", st === "charging" ? "primary" : "", "ev_station", st === "charging" ? `${n((val(ev, "power") || 0) / 1000)}<small> kW</small>` : esc(pretty(st || "idle")), ev.name,
           val(ev, "energy_session") != null ? `${n(val(ev, "energy_session"))} kWh this session` : "");
       }
       case "vacuum": {
         const v = list.find(d => kindOf(d) === "vacuum"); if (!v) return "";
-        return goTile("controls", val(v, "vacuum_state") === "error" ? "bad" : "", "vacuum", pretty(val(v, "vacuum_state") || "—"), v.name, val(v, "battery") != null ? `Battery ${n(val(v, "battery"))}%` : "");
+        return goTile("controls", val(v, "vacuum_state") === "error" ? "bad" : "", "vacuum", esc(pretty(val(v, "vacuum_state") || "—")), v.name, val(v, "battery") != null ? `Battery ${n(val(v, "battery"))}%` : "");
       }
       case "irrigation": {
         const z = list.filter(d => kindOf(d) === "irrigation_zone"); if (!z.length) return "";

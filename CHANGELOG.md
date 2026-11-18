@@ -2,6 +2,36 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-17 (v11)
+
+- The Home page's title, hidden tiles and hidden pages are kept across a restart (they were lost, and the next
+  layout save erased them for good).
+- The Power page reads each device's last value before the chart's start with an index lookup instead of scanning
+  the whole history, so it stays fast with a year of history.
+- Reloading Home Assistant's devices no longer disconnects every open browser (with 250+ devices the update queue
+  overflowed); each device is sent once, and readings that didn't change keep their "last updated" time.
+- Settings → Diagnostics: the anonymous file now also hides device friendly names in labels and in capability
+  names, host names (with or without a port), compressed IPv6 and plain MAC addresses, URL paths, and device or room
+  names that appear in warnings and status lines. Text readings are only kept when they are short lowercase words.
+- Copy summary works on plain http (it falls back when the browser has no clipboard).
+- The diagnostics file is built from a copy of the devices, so it can't hit a "changed during iteration" error.
+- A default-password admin session can't read adapter status (`/api/health`) or `/metrics` until it has chosen a
+  password.
+- The Home tiles escape a device's own text (an alarm state sent over MQTT can no longer inject markup).
+- Fits a 320 px phone: the history range buttons scroll, the Devices search box and the colour picker no longer
+  push the page wider.
+
+- Sense appliances that are off read 0 W instead of keeping their last wattage on the Power page.
+- A device stays online while any of its entities is available (one unavailable sensor no longer shows the whole
+  device offline).
+- A device's second control of the same kind (the right-hand garage door, a second dimmer channel) can be controlled.
+- A plug-type binary sensor is a reading, not a switch.
+- A command sent while the link to Home Assistant drops fails with a normal error instead of silently stopping an
+  automation.
+- Entities removed or hidden in Home Assistant leave the card at the next read instead of staying until a restart.
+- Changes that arrive while Haven is reading Home Assistant's registries are applied after the read, and reads
+  happen one at a time, so an older snapshot can't overwrite a newer change.
+
 ## 2026-11-17 (v10)
 
 - Settings → Diagnostics: the Copy summary, Report on GitHub and Download buttons wrap on a phone instead of

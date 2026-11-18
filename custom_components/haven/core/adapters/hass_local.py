@@ -166,7 +166,9 @@ class HassLocalAdapter(HomeAssistantAdapter):
         self._to_haven(self._schedule_reload)
 
     def _state_changed(self, eid: str, new: tuple | None, created: bool) -> None:
-        if eid in self.entity_dev:
+        if self._held is not None and new is not None:      # a read is running: apply this after it
+            self._held.append((eid, {"state": new[0], "attributes": new[1]}))
+        elif eid in self.entity_dev:
             if new is None:                     # entity removed
                 self._schedule_reload()
                 return

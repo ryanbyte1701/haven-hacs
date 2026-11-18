@@ -129,8 +129,12 @@ class Hub:
     def _load_layout(self) -> dict:
         try:
             data = json.loads(self._layout_path.read_text())
-            return {"rooms": list(data.get("rooms", [])), "order": dict(data.get("order", {})),
-                    "pinned": list(data.get("pinned", [])), "views": list(data.get("views", []))}
+            out = {"rooms": list(data.get("rooms", [])), "order": dict(data.get("order", {})),
+                   "pinned": list(data.get("pinned", [])), "views": list(data.get("views", []))}
+            home = _clean_home(data.get("home"))
+            if home is not None:
+                out["home"] = home
+            return out
         except Exception:  # noqa: BLE001 - a missing or broken file means the default layout
             return {"rooms": [], "order": {}, "pinned": [], "views": []}
 
@@ -186,7 +190,9 @@ class Hub:
         dev.categories = self.overrides.get(dev.id, {}).get("categories")
 
     # ---------- adapter-facing API ----------
-    def upsert_device(self, dev: Device) -> None:
+    def upsert_device(self, dev: Device, replace: bool = False, publish: bool = True) -> None:
+        """Add or update a device. Readings the old copy had and the new one lacks are kept, unless `replace`
+        (the adapter knows the full list: an entity Home Assistant dropped must go)."""
         # capability names end up in HTML attributes and URLs: keep them to a safe alphabet
         bad = [k for k in dev.capabilities if not _SAFE_CAP.fullmatch(k)]
         for k in bad:
@@ -198,15 +204,19 @@ class Hub:
                 if c.value is None and k in old.capabilities:
                     c.value = old.capabilities[k].value
                     c.updated = old.capabilities[k].updated
-            for k, c in old.capabilities.items():
-                dev.capabilities.setdefault(k, c)
+            if not replace:
+                for k, c in old.capabilities.items():
+                    dev.capabilities.setdefault(k, c)
             if not dev.room:
                 dev.room = old.room
         self._apply_overrides(dev)
         self.devices[dev.id] = dev
-        self._publish(dev)
+        if publish:
+            self._publish(dev)
 
-    def set_values(self, device_id: str, values: dict[str, Any], online: bool | None = True) -> None:
+    def set_values(self, device_id: str, values: dict[str, Any], online: bool | None = True, fresh: bool = True) -> None:
+        """Record new readings. `fresh=False` is for a re-read of what the source already holds (an import): a value
+        that hasn't changed keeps its old "last updated" time, so a dead sensor doesn't look freshly reported."""
         dev = self.devices.get(device_id)
         if not dev:
             return
@@ -223,6 +233,8 @@ class Hub:
             c = dev.capabilities.get(k)
             if c is None:
                 c = dev.capabilities[k] = Capability(name=k)
+            if not fresh and c.value == v and c.updated:
+                continue
             if c.value != v:
                 changes[k] = (c.value, v)
             c.value = v
@@ -245,7 +257,7 @@ class Hub:
             self._offer(q, msg)
 
     def _offer(self, q: asyncio.Queue, msg) -> None:
-        """Queue a message; a client that has fallen 500 messages behind is told to close so it
+        """Queue a message; a client that has fallen 2000 messages behind is told to close so it
         reconnects and gets a fresh snapshot instead of silently missing updates."""
         try:
             q.put_nowait(msg)
@@ -314,7 +326,7 @@ class Hub:
 
     # ---------- live updates ----------
     def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=500)
+        q: asyncio.Queue = asyncio.Queue(maxsize=2000)
         self._subs.add(q)
         return q
 

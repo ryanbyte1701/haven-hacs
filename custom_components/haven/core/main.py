@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import types
 import logging
 import json
 import re
@@ -254,15 +255,9 @@ def _principal(token: str | None) -> dict | None:
     return accounts.store.resolve(token)
 
 
-def _authorized(request_token: str | None) -> bool:
-    """True for an admin's session."""
-    p = _principal(request_token)
-    return bool(p and p["role"] == "admin")
-
-
 def is_admin(request: Request) -> bool:
     p = getattr(request.state, "principal", None)
-    return bool(p and p["role"] == "admin")
+    return bool(p and p["role"] == "admin" and not p.get("must_change"))   # a default-password session isn't trusted yet
 
 
 def _request_token(request) -> str | None:
@@ -280,7 +275,7 @@ def _trusted_proxy(ip: str) -> bool:
     return "*" in allow or ip in [a.strip() for a in allow.split(",")]
 
 
-def _same_origin(headers, peer: str | None = None) -> bool:
+def _same_origin(headers) -> bool:
     """Browsers send Origin on cross-site requests and WebSockets. Reject any whose host differs
     from the Host we were reached on (blocks other websites and DNS-rebinding pages)."""
     origin = headers.get("origin")
@@ -311,7 +306,7 @@ async def auth(request: Request, call_next):
                 status_code=421)
     if p.startswith("/api/"):
         writing = request.method in ("POST", "PUT", "PATCH", "DELETE")
-        if writing and not _same_origin(request.headers, ip):
+        if writing and not _same_origin(request.headers):
             return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
         # who is asking (app/auth.py has the roles and the route policy). The credential is checked
         # first: a right one always gets through; wrong ones are counted and answered more and more slowly.
@@ -774,7 +769,9 @@ async def _diag_data() -> dict:
         extra["high_availability"] = {k: v for k, v in ha_mod.ha.status().items() if k in ("enabled", "state", "role")}
     except Exception:  # noqa: BLE001
         pass
-    return await asyncio.to_thread(diag.build, hub, manager, history_store, settings_mod, extra=extra)
+    # the devices are copied here, on the event loop, so the worker thread never reads dicts that are changing
+    snap = types.SimpleNamespace(devices={k: v.model_copy(deep=True) for k, v in hub.devices.items()})
+    return await asyncio.to_thread(diag.build, snap, manager, history_store, settings_mod, extra=extra)
 
 
 @app.get("/api/diagnostics")
@@ -834,7 +831,7 @@ async def metrics(request: Request):
     mtok, ip = history_store.metrics_token, _client_ip(request)
     if got:
         p = _principal(got)
-        if (mtok and _token_ok(got, mtok)) or (p and p["role"] == "admin"):
+        if (mtok and _token_ok(got, mtok)) or (p and p["role"] == "admin" and not p.get("must_change")):
             auth_limiter.ok(ip)
         else:
             if auth_limiter.flooding(ip):
@@ -860,7 +857,7 @@ async def ws(socket: WebSocket):
     # accept first so the browser actually sees our close code (a close before accept arrives as 1006)
     await socket.accept()
     ip = _client_ip(socket)
-    if not _same_origin(socket.headers, ip) or not sec.host_allowed(socket.headers.get("host", "")):
+    if not _same_origin(socket.headers) or not sec.host_allowed(socket.headers.get("host", "")):
         await socket.close(code=4403)
         return
     # the session token comes in the first message, never in the URL (URLs get logged)

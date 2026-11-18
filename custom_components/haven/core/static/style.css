@@ -475,7 +475,7 @@ input[type=range].m3-slider { -webkit-appearance: none; appearance: none; flex: 
 .spark-btn { display: block; width: 100%; text-align: left; border-radius: var(--shape-s); cursor: zoom-in; }
 .spark-btn:hover svg.spark .area { opacity: .2; }
 .ups-charts .spark-btn small { font-size: 12px; opacity: .75; display: block; margin-bottom: 4px; }
-.ranges { width: fit-content; max-width: 100%; margin-bottom: 12px; }
+.ranges { width: fit-content; max-width: 100%; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
 .ranges button { padding: 0 14px; flex: none; }
 #alerts .ranges { margin: 0 0 8px; }
 .hist-chart { min-height: 220px; display: grid; place-items: center; }
@@ -588,7 +588,7 @@ body.editing .card.mini .quick, body.editing .card.mini .mini-head .m3-switch { 
 /* ---------- devices page ---------- */
 .devtools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; width: 100%; margin-bottom: 4px; }
 .search { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 16px; border-radius: var(--shape-full);
-  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); flex: 1 1 320px; max-width: 520px; }
+  background: var(--md-surface-container-high); color: var(--md-on-surface-variant); flex: 1 1 min(320px, 100%); max-width: min(520px, 100%); box-sizing: border-box; }
 .search input { flex: 1; border: 0; background: transparent; color: var(--md-on-surface); font: 400 16px Roboto, sans-serif; outline: none; min-width: 0; }
 .devlist { width: 100%; display: flex; flex-direction: column; gap: 2px; }
 .devnote { display: flex; gap: 10px; align-items: flex-start; color: var(--md-on-surface-variant); font-size: 13px; line-height: 19px; margin: 4px 0 12px; max-width: 900px; }
@@ -1450,3 +1450,7 @@ html[data-mode="dark"] .thermo.heat .tact { color: #ffb067; } html[data-mode="da
 .diag-link a { color: inherit; font-weight: 500; }
 .diag-link svg.ic { flex: none; }
 .toggles .fhelp { margin-top: 8px; display: block; }
+
+/* a colour picker never pushes its row wider than the screen (320 px phones) */
+input[type=color] { max-width: 100%; min-width: 0; }
+label:has(> input[type=color]) { min-width: 0; max-width: 100%; }

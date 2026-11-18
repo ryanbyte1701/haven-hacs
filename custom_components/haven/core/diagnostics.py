@@ -25,6 +25,7 @@ import time
 from typing import Any
 
 from . import security as sec
+from .models import UNITS
 
 # ---------------------------------------------------------------- recent warnings (ring buffer)
 _RECENT: collections.deque = collections.deque(maxlen=300)
@@ -48,19 +49,32 @@ def install_log_buffer() -> None:
 # ---------------------------------------------------------------- scrubbing
 _IP4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _IP6 = re.compile(r"\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b", re.I)
+_IP6_SHORT = re.compile(r"(?<![\w:])(?:[0-9a-f]{0,4}:){1,7}:[0-9a-f]{0,4}(?::[0-9a-f]{1,4}){0,6}(?![\w:])", re.I)   # with ::
 _MAC = re.compile(r"\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b", re.I)
+_MAC_PLAIN = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{12}\b", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_URL = re.compile(r"\b(https?|wss?|mqtt|sftp|ftp)://[^\s/'\"<>]+", re.I)
-_LONG = re.compile(r"\b[A-Za-z0-9_\-]{24,}\b")        # tokens, keys, serial-like ids
+_URL = re.compile(r"\b(https?|wss?|mqtt|sftp|ftp)://[^\s'\"<>]*", re.I)             # the host and the path after it
+_HOST_PORT = re.compile(r"\b(?=[a-z0-9.-]*[a-z])[a-z0-9-]+(?:\.[a-z0-9-]+)*:\d{2,5}\b", re.I)
+_HOSTNAME = re.compile(r"\b(?:[a-z0-9-]+\.)+(?:local|lan|home|internal|localdomain|arpa|net|com|org|io|me|tv|cc|xyz|info|us|dev|app|cloud)\b", re.I)
+_LONG = re.compile(r"\b[A-Za-z0-9_\-]{20,}\b")        # tokens, keys, serial-like ids
 
 
-def scrub(text: Any, secrets_: list[str] = ()) -> str:
+def scrub(text: Any, secrets_: list[str] = (), names: dict[str, str] | None = None) -> str:
+    """Remove what identifies the home. `names` maps the real device names, ids and rooms to their pseudonyms."""
     s = sec.redact(str(text), secrets_)
+    if names:
+        keys = sorted((k for k in names if len(k) >= 3), key=len, reverse=True)
+        if keys:
+            s = re.sub("|".join(re.escape(k) for k in keys), lambda m: names[m.group(0)], s)
     s = _URL.sub(lambda m: f"{m.group(1)}://<host>", s)
     s = _EMAIL.sub("<email>", s)
     s = _MAC.sub("<mac>", s)
+    s = _MAC_PLAIN.sub("<mac>", s)
     s = _IP6.sub("<ip>", s)
+    s = _IP6_SHORT.sub("<ip>", s)
     s = _IP4.sub("<ip>", s)
+    s = _HOST_PORT.sub("<host>", s)
+    s = _HOSTNAME.sub("<host>", s)
     s = _LONG.sub("<id>", s)
     return s
 
@@ -90,11 +104,12 @@ class _Anon:
 
 
 def _value(v: Any, secrets_: list[str]) -> Any:
-    """Readings: numbers, booleans and short state words stay; other text is described, not copied."""
+    """Readings: numbers, booleans and short lowercase state words (open, on_battery) stay; other text (it may be a
+    name) is described, not copied."""
     if v is None or isinstance(v, (bool, int, float)):
         return v
     if isinstance(v, str):
-        if len(v) <= 32 and re.fullmatch(r"[A-Za-z0-9_ .:%+\-/#°]*", v) and not _IP4.search(v) and not _EMAIL.search(v):
+        if len(v) <= 32 and re.fullmatch(r"[a-z0-9_ .:%+\-/#°]*", v) and not _IP4.search(v) and not _EMAIL.search(v):
             return v if not v.startswith("#") else "<colour>"
         return f"<text, {len(v)} chars>"
     if isinstance(v, (list, tuple)):
@@ -107,19 +122,38 @@ def _value(v: Any, secrets_: list[str]) -> Any:
 _ATTR_KEEP = {"kind", "icon", "is_day", "yolink_type", "hvac_modes", "fan_modes", "has_snapshot", "via"}
 
 
+_CAP_BASES = sorted({*UNITS, "light", "switch", "lock", "valve", "contact", "leak", "motion", "occupancy", "smoke", "co", "gas",
+                     "heat", "battery_low", "tamper", "vibration", "power_on", "connected", "state", "value", "action", "position",
+                     "shade", "brightness", "color", "color_temp", "fan_speed", "alarm_panel", "hvac_mode", "hvac_action",
+                     "fan_mode", "target_temperature", "heat_setpoint", "cool_setpoint", "status_text", "opening", "energy_today",
+                     "energy_month", "energy_total", "co_ppm", "ups_status"}, key=len, reverse=True)
+
+
+def _cap_key(name: str, anon: _Anon) -> str:
+    """Capability names are kept when they are Haven's own. A suffix that came from a Home Assistant entity or
+    friendly name (switch_<name>, value_<entity>) is replaced with a hash."""
+    if name in _CAP_BASES:
+        return name
+    for base in _CAP_BASES:
+        if name.startswith(base + "_"):
+            return f"{base}_{anon.hid('x', name)[2:]}"
+    return anon.hid("cap", name)
+
+
 def _device(d, anon: _Anon, now: float, secrets_: list[str]) -> dict:
     attrs = d.attributes or {}
-    kind = str(attrs.get("kind") or next(iter(d.capabilities), "device"))
+    keys = {name: _cap_key(name, anon) for name in d.capabilities}
+    kind = str(attrs.get("kind") or next(iter(keys.values()), "device"))
     caps = {}
     for name, c in d.capabilities.items():
         entry = {"value": _value(c.value, secrets_)}
-        for k in ("unit", "min", "max", "step", "options", "writable", "label"):
+        for k in ("unit", "min", "max", "step", "options", "writable"):      # not the label: it is often a friendly name
             v = getattr(c, k, None)
             if v not in (None, False, "", []):
-                entry[k] = scrub(v, secrets_) if k == "label" else v
+                entry[k] = v
         if getattr(c, "updated", None):
             entry["age_s"] = round(now - c.updated)
-        caps[name] = entry
+        caps[keys[name]] = entry
     out = {
         "id": anon.hid("dev", d.id),
         "name": anon.name(kind),
@@ -140,7 +174,7 @@ def _device(d, anon: _Anon, now: float, secrets_: list[str]) -> dict:
     return out
 
 
-def _settings(settings_mod, statuses: dict, secrets_: list[str]) -> list[dict]:
+def _settings(settings_mod, statuses: dict, secrets_: list[str], names: dict[str, str] | None = None) -> list[dict]:
     out = []
     try:
         cfg = settings_mod.effective_config()
@@ -148,7 +182,7 @@ def _settings(settings_mod, statuses: dict, secrets_: list[str]) -> list[dict]:
             vals = s.get("values") or {}
             out.append({
                 "id": s["id"], "enabled": bool(s.get("enabled")),
-                "status": scrub(s.get("status"), secrets_) if s.get("status") else None,
+                "status": scrub(s.get("status"), secrets_, names) if s.get("status") else None,
                 "fields_set": sorted(k for k, v in vals.items() if v not in (None, "", [], {}, False)),
             })
     except Exception as e:  # noqa: BLE001
@@ -177,7 +211,14 @@ def build(hub, manager, history_store, settings_mod, *, extra: dict | None = Non
     now = time.time()
     secrets_ = list(manager.secrets()) if manager else []
     anon = _Anon()
-    devs = [_device(d, anon, now, secrets_) for d in sorted(hub.devices.values(), key=lambda d: (d.source, d.id))]
+    ordered = sorted(hub.devices.values(), key=lambda d: (d.source, d.id))
+    devs = [_device(d, anon, now, secrets_) for d in ordered]
+    names: dict[str, str] = {}              # what appears in log and status lines -> its pseudonym
+    for d, out in zip(ordered, devs, strict=True):
+        names[d.name] = out["name"]
+        names[d.id] = out["id"]
+        if d.room:
+            names[d.room] = anon.room(d.room) or ""
     by_source = collections.Counter(d["source"] for d in devs)
     statuses = manager.statuses() if manager else {}
     hist = {}
@@ -205,13 +246,13 @@ def build(hub, manager, history_store, settings_mod, *, extra: dict | None = Non
             "by_integration": dict(sorted(by_source.items())),
             "rooms": len(anon.rooms),
         },
-        "integrations": {k: scrub(v, secrets_) for k, v in sorted(statuses.items())},
-        "settings": _settings(settings_mod, statuses, secrets_),
+        "integrations": {k: scrub(v, secrets_, names) for k, v in sorted(statuses.items())},
+        "settings": _settings(settings_mod, statuses, secrets_, names),
         "history": hist,
         **(extra or {}),
         "devices": devs,
         "recent_warnings": [
-            {"age_s": round(now - t), "level": lvl, "logger": name, "message": scrub(msg, secrets_)}
+            {"age_s": round(now - t), "level": lvl, "logger": name, "message": scrub(msg, secrets_, names)}
             for t, lvl, name, msg in list(_RECENT)[-150:]
         ],
     }

@@ -246,7 +246,7 @@
         <td class="muted c-det">${esc(detailText(d))}</td>
         <td class="c-bat">${b != null ? levelBar(b) : bl != null ? `<span class="val ${bl ? "bad" : ""}">${bl ? "Low" : "OK"}</span>` : `<span class="muted">—</span>`}</td>
         <td class="muted c-upd">${ago(lastUpdated(d))}</td>
-        <td class="c-ctl">${controlsBlock(d, true)}</td></tr>`;
+        <td class="c-ctl">${controlsBlock(d)}</td></tr>`;
     }).join("")).join("");
     return `<div class="table-wrap"><table class="dtable devtable"><thead><tr>${th("name", "Device", "c-name")}${th("room", "Room", "c-room")}${th("source", "Integration", "c-src")}${th("status", "Status", "c-status")}${th("", "Details", "c-det")}${th("battery", "Battery", "c-bat")}${th("updated", "Updated", "c-upd")}${th("", "Controls", "c-ctl")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }

@@ -391,6 +391,10 @@ class HomeAssistantAdapter(Adapter):
             self.refresh_hours = 24.0
         self._refresh_now = asyncio.Event()
         self._refreshed: asyncio.Future | None = None
+        self._load_lock: asyncio.Lock | None = None
+        self.avail: dict[str, bool] = {}          # entity id -> is it available
+        self.dev_ents: dict[str, list[str]] = {}  # device id -> its entities
+        self._held: list | None = None          # state changes that arrived during a load
         self.last_import: float | None = None
         # NUT (UPS) devices: entity_id -> NUT variable, and per Haven device {NUT variable: (state, attributes)}
         self.entity_nut: dict[str, str] = {}
@@ -453,8 +457,9 @@ class HomeAssistantAdapter(Adapter):
                 reader = asyncio.create_task(self._reader(ws))
                 refresher = forecaster = None
                 try:
+                    self._held = []                     # changes that arrive from now until the first read finishes
+                    await self._send({"type": "subscribe_events", "event_type": "state_changed"})   # before the load: no gap
                     await self._load()
-                    await self._send({"type": "subscribe_events", "event_type": "state_changed"})
                     refresher = asyncio.create_task(self._refresher())
                     forecaster = asyncio.create_task(self._forecaster())
                     await reader
@@ -468,7 +473,8 @@ class HomeAssistantAdapter(Adapter):
                         self._refreshed.exception()        # retrieved: no "never retrieved" warning if nobody waits
                     for f in self._pending.values():
                         if not f.done():
-                            f.cancel()
+                            f.set_exception(ConnectionError("connection to Home Assistant closed"))
+                            f.exception()                  # retrieved: no warning if nobody is waiting
                     self._pending.clear()
         self.ws = None
         for did in set(self.entity_dev.values()):
@@ -495,7 +501,9 @@ class HomeAssistantAdapter(Adapter):
                 elif m.get("type") == "event":
                     ev = (m.get("event") or {}).get("data") or {}
                     ns = ev.get("new_state")
-                    if ns and ev.get("entity_id") in self.entity_dev:
+                    if ns and ev.get("entity_id") and self._held is not None:
+                        self._held.append((ev["entity_id"], ns))
+                    elif ns and ev.get("entity_id") in self.entity_dev:
                         self._apply(ev["entity_id"], ns)
 
     async def _refresher(self):
@@ -553,6 +561,22 @@ class HomeAssistantAdapter(Adapter):
         return attrs
 
     async def _load(self):
+        """Read Home Assistant's registries and states. One read at a time; state changes that arrive while one
+        is running are held and applied after it, so an older snapshot never overwrites a newer change."""
+        if self._load_lock is None:
+            self._load_lock = asyncio.Lock()
+        async with self._load_lock:
+            if self._held is None:
+                self._held = []
+            try:
+                await self._load_now()
+            finally:
+                held, self._held = self._held, None
+            for eid, ns in held:
+                if eid in self.entity_dev:
+                    self._apply(eid, ns)
+
+    async def _load_now(self):
         try:
             conf = await self._send({"type": "get_config"})
             self.temp_unit = str(((conf or {}).get("unit_system") or {}).get("temperature") or "°C")
@@ -637,6 +661,17 @@ class HomeAssistantAdapter(Adapter):
         if state == "unavailable" and STANDBY_WHEN_UNAVAILABLE & self._integrations(eid):
             return "off"
         return state
+
+    @staticmethod
+    def _standby_zero(standby: bool, mapped: dict) -> dict:
+        """An appliance that is off draws nothing: a Sense power or current sensor that went "unavailable" reads 0."""
+        if not standby:
+            return mapped
+        return {k: ((0.0, kw) if k in ("power", "current") and v is None else (v, kw)) for k, (v, kw) in mapped.items()}
+
+    def _device_online(self, did: str, eid: str) -> bool:
+        """A device is online while any of its entities is available (one unavailable sensor doesn't take it down)."""
+        return any(self.avail.get(e, True) for e in self.dev_ents.get(did) or [eid])
 
     def _main_integrations(self, eid: str) -> set[str]:
         """The integration(s) a device comes from, as Settings lists them: its config entries' domains (an ecobee
@@ -733,7 +768,8 @@ class HomeAssistantAdapter(Adapter):
                 outlet = outlet or (st.get("attributes") or {}).get("device_class") == "outlet"
             elif dom == "light":
                 has_light = True
-            mapped = map_entity(eid, self._eff(eid, st.get("state")), self._attrs(eid, st.get("attributes"))) or {}
+            eff = self._eff(eid, st.get("state"))
+            mapped = self._standby_zero(eff != st.get("state"), map_entity(eid, eff, self._attrs(eid, st.get("attributes"))) or {})
             # A device's extra switches (a Ring camera's Siren, Motion detection, Privacy mode…) are their own
             # controls named after the entity, not the device's "Power" switch.
             extra = self._switch_suffix(eid, st, str(name)) if dom in ("switch", "input_boolean", "siren") else None
@@ -753,6 +789,8 @@ class HomeAssistantAdapter(Adapter):
                 if final in caps:                          # two entities give the same reading: keep both
                     final = f"{cname}_{re.sub(r'[^A-Za-z0-9_]', '_', eid.split('.', 1)[1])[-20:]}"
                 kw = dict(kw)
+                if dom in ("binary_sensor", "sensor"):
+                    kw["writable"] = False             # a plug-type binary sensor reports; it can't be switched
                 if eid.split(".")[0] in ("light", "switch", "input_boolean", "siren", "lock", "valve", "alarm_control_panel", "fan", "cover") \
                         and (cname in ("light", "switch", "lock", "valve", "alarm_panel", "brightness", "color_temp", "color", "fan_speed", "action", "position")
                              or cname.startswith("switch_")):
@@ -779,7 +817,7 @@ class HomeAssistantAdapter(Adapter):
         # what kind of device this is: one ordered table of rules (app/adapters/ha_rules.py)
         kind = classify(DeviceFacts(
             name=str(name), model=str(devreg.get("model") or ""), caps=set(caps), values=values, domains=mapped_domains,
-            integrations=set().union(*(self._integrations(s_["entity_id"]) for s_ in sts)) if hasattr(self, "registry") else set(),
+            integrations=set().union(*(self._integrations(s_["entity_id"]) for s_ in sts)),
             entity_names=[str((s_.get("attributes") or {}).get("friendly_name") or s_["entity_id"]) for s_ in sts],
             has_switch=has_switch, has_light=has_light, outlet=outlet))
         # doors vs windows: Home Assistant's device class decides which page a contact sensor goes on
@@ -802,7 +840,8 @@ class HomeAssistantAdapter(Adapter):
                     self.entity_caps[eid] = {o: (new if c == k else c) for o, c in self.entity_caps.get(eid, {}).items()}
         aq_service = next((OUTDOOR_AQI[d] for d in sorted(self._integrations(first["entity_id"])) if d in OUTDOOR_AQI), None)
         room = self._area_name(first["entity_id"]) or ((self.areas.get(devreg.get("area_id"))) if devreg else None)
-        self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps))
+        self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps),
+                               replace=True, publish=False)
         attrs = {"ha_entities": [s["entity_id"] for s in sts][:40]}
         if opening and ("contact" in caps or "shade" in caps):
             attrs["opening"] = opening
@@ -822,21 +861,29 @@ class HomeAssistantAdapter(Adapter):
         if nut:
             attrs["nut_vars"] = nv
         self.hub.set_attributes(did, attrs)
-        online = any(self._eff(s["entity_id"], s.get("state")) != "unavailable" for s in sts)
-        self.hub.set_values(did, {k: v for k, v in values.items() if v is not None}, online=online)
+        for s_ in sts:
+            self.avail[s_["entity_id"]] = self._eff(s_["entity_id"], s_.get("state")) != "unavailable"
+        self.dev_ents[did] = [s_["entity_id"] for s_ in sts]
+        self.hub.set_values(did, {k: v for k, v in values.items() if v is not None}, online=any(self.avail[e] for e in self.dev_ents[did]),
+                            fresh=False)
         return True
 
     def _apply(self, eid: str, ns: dict):
+        if self._held is not None:                  # a read of the registries is running: apply this after it
+            self._held.append((eid, ns))
+            return
         did = self.entity_dev[eid]
         if eid in self.entity_nut:
             nut = self.nut_states.setdefault(did, {})
             nut[self.entity_nut[eid]] = (ns.get("state"), ns.get("attributes") or {})
             nv = nut_vars(nut)
             self.hub.set_attributes(did, {"nut_vars": nv})
-            self.hub.set_values(did, parse_status(nv), online=ns.get("state") != "unavailable")
+            self.avail[eid] = ns.get("state") != "unavailable"
+            self.hub.set_values(did, parse_status(nv), online=self._device_online(did, eid))
             return
         state = self._eff(eid, ns.get("state"))
-        mapped = map_entity(eid, state, self._attrs(eid, ns.get("attributes"))) or {}
+        self.avail[eid] = state != "unavailable"
+        mapped = self._standby_zero(state != ns.get("state"), map_entity(eid, state, self._attrs(eid, ns.get("attributes"))) or {})
         names = self.entity_caps.get(eid, {})
         vals = {names[c]: v for c, (v, _kw) in mapped.items() if v is not None and c in names}
         if eid.startswith("weather."):
@@ -848,7 +895,7 @@ class HomeAssistantAdapter(Adapter):
                 self.weather_state[eid] = ns.get("state")
                 self._forecast_due.add(eid)
                 self._forecast_now.set()
-        self.hub.set_values(did, vals, online=state != "unavailable")
+        self.hub.set_values(did, vals, online=self._device_online(did, eid))
 
     # ---------------- weather forecasts ----------------
     async def _forecaster(self):
@@ -927,6 +974,8 @@ class HomeAssistantAdapter(Adapter):
         if not eid or self.ws is None:
             raise RuntimeError("not connected to Home Assistant")
         domain = eid.split(".")[0]
+        # a second reading of the same kind was renamed (action_right, brightness_b…): control it by its original name
+        capability = next((o for o, c in self.entity_caps.get(eid, {}).items() if c == capability), capability)
         base = capability.split("_")[0] if capability not in ("alarm_panel", "fan_speed", "color_temp") else capability
         data: dict[str, Any] = {}
         if base in SERVICE:
