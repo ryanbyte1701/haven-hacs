@@ -107,6 +107,15 @@
       const cur = tabsOf(d), auto = autoTabs(d), custom = Array.isArray(d.categories);
       let next = [...cur]; const why = [];
       const add = t => { if (!next.includes(t)) next.push(t); }, drop = t => { next = next.filter(x => x !== t); };
+      const same = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+      if (cur.some(t => !TAB_IDS.includes(t))) { next = next.filter(t => TAB_IDS.includes(t)); why.push("the Controls page was removed"); }
+      if (isPool(d)) {            // pool devices live on Pool alone
+        if (!same(next, ["pool"])) { next = ["pool"]; why.push(srcLabel(d) === "WaterGuru" ? "it's a WaterGuru pool device" : `the name mentions "pool"`); }
+      } else {
+      if (next.includes("climate") && deviceType(d) === "leak") { drop("climate"); why.push("a leak sensor's temperature isn't room climate"); }
+      if (next.includes("switches") && !typeMatch(d, "switches")) { drop("switches");
+        why.push(has(d, "light") ? "it's a light, not a light switch or plug" : "Switches is only for smart plugs and light switches"); }
+      if (!next.includes("switches") && typeMatch(d, "switches") && has(d, "light")) { add("switches"); why.push("its name says it's a light switch"); }
       if (cur.includes("doors") && !isWindow(d) && SA_WINDOW.test(d.name) && !SA_DOOR.test(d.name)) {
         drop("doors"); add("windows"); why.push(`the name mentions "${(d.name.match(SA_WINDOW) || ["window"])[0].toLowerCase()}"`); }
       else if (cur.includes("windows") && !isShade(d) && SA_DOOR.test(d.name) && !SA_WINDOW.test(d.name)) {
@@ -118,11 +127,11 @@
       // every recognised type has a home page: smoke alarms and locks in Security, leak sensors in Water…
       const ty = deviceType(d), home = { smoke: "security", alarm: "security", lock: "security", motion: "security", camera: "security",
         leak: "water", valve: "water", water: "water", thermostat: "climate", climate: "climate", light: "lights", shade: "windows",
-        door: isWindow(d) ? "windows" : "doors", plug: "switches", vacuum: edition === "hacs" ? "appliances" : "", purifier: "climate" }[ty];
+        door: isWindow(d) ? "windows" : "doors", plug: typeMatch(d, "switches") ? "switches" : "", vacuum: edition === "hacs" ? "appliances" : "", purifier: "climate" }[ty];
       if (home && !next.includes(home) && !(home === "lights" && why.length)) {
         add(home); if (home === "windows") drop("doors");
         why.push(`Haven recognises it as ${(TYPE_INFO[ty] || TYPE_INFO.other)[1].toLowerCase()}${["smoke", "lock"].includes(ty) ? ", which belong in Security" : ""}`); }
-      const same = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+      }
       if (why.length && !same(next, cur)) {
         const gone = cur.filter(t => !next.includes(t)).map(tabName), added = next.filter(t => !cur.includes(t)).map(tabName);
         out.push({ key: `tabs:${d.id}`, id: d.id, body: same(next, auto) ? { auto_categories: true } : { categories: TAB_IDS.filter(t => next.includes(t)) },
@@ -225,7 +234,7 @@
 
   // ---- Home page & menu customization (saved on the server, same on every screen) ----
   let homeDraft = null;
-  const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["doors", "Doors"], ["windows", "Windows"],
+  const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["pool", "Pool"], ["doors", "Doors"], ["windows", "Windows"],
     ["security", "Security"], ["switches", "Switches"], ...(edition === "hacs" ? [["appliances", "Appliances"]] : []), ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
   function homeSummary() {
     const c = homeCfg(), on = ["weather", "climate", "thermostat", "aqi_outdoor", "aqi_indoor"].filter(k => c[k]).length;

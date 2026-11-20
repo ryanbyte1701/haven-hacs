@@ -13,6 +13,9 @@ Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/h
 - Security puts every smoke and CO alarm together in one section at the top.
 - The Controls page is gone. Switches now holds only smart plugs and wall switches or dimmers (named switch, dimmer
   or keypad), never bulbs or a camera's or vacuum's extra switches.
+- Settings → Smart assignment follows these rules: it suggests Pool for pool devices, takes leak sensors off Climate
+  and bulbs off Switches, adds light switches to Switches, and drops the removed Controls page from devices you set
+  by hand. Settings → Home page lists Pool among the pages you can hide.
 
 - Each device records the integration it comes from, which the Lights tabs use.
 
