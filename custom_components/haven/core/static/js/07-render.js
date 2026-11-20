@@ -178,9 +178,12 @@
     if (mode === "table") { $("#rooms").innerHTML = tableView(shown); return; }
     const fallback = (a, b) => isAlarm(b) - isAlarm(a) || (view === "doors" ? (val(b, "contact") === "open") - (val(a, "contact") === "open") : 0) || a.name.localeCompare(b.name);
     const hc = view === "all" ? homeCfg() : null;
+    // Security by room: smoke and CO alarms together in one section first, not spread over the rooms
+    const smoke = view === "security" && gbNow === "room" ? shown.filter(d => deviceType(d) === "smoke").sort(fallback) : [];
+    const smokeSec = smoke.length ? `<section class="room" data-fixed><h2>Smoke &amp; CO alarms</h2><div class="grid">${smoke.map(card).join("")}</div></section>` : "";
     $("#rooms").innerHTML = hc && !hc.rooms && !editing()
       ? (hc.favorites ? roomSections(shown.filter(d => layout.pinned.includes(d.id)), { favorites: true, fallback }) : "")
-      : roomSections(shown, { favorites: view === "all" && (!hc || hc.favorites || editing()), fallback });
+      : roomSections(smoke.length ? shown.filter(d => !smoke.includes(d)) : shown, { favorites: view === "all" && (!hc || hc.favorites || editing()), fallback, extraFirst: smokeSec });
     initSortables();
     $("#roomlist").innerHTML = [...new Set(list.map(d => d.room).filter(Boolean))].map(r => `<option value="${esc(r)}">`).join("");
   }
@@ -200,6 +203,9 @@
     $("#badge-lights").textContent = list.filter(d => isLight(d) && !isGroup(d) && val(d, "light")).length || "";
     $("#badge-battery").textContent = low || ""; $("#badge-doors").textContent = open || ""; $("#badge-power").textContent = pw || "";
     $("#badge-more").textContent = (pw + low + badAir) || "";
+    // Pool shows in the menu once there is something on it
+    const poolHid = !list.some(d => tabsOf(d).includes("pool")) || (homeCfg().hidden_pages || []).includes("pool");
+    $$('#nav [data-f="pool"], #more [data-f="pool"]').forEach(b => { b.hidden = poolHid; });
     // the same counts in the phone's More sheet, and in every button's accessible name
     const lit = Number($("#badge-lights").textContent) || 0;
     const counts = { air: [badAir, "with poor air"], lights: [lit, "on"], battery: [low, "low"], doors: [open, "open"], power: [pw, "UPS not on mains"] };

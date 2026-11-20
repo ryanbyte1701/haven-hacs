@@ -75,7 +75,8 @@ _INTEGRATION_NAMES = {
     "google_nest": "Google Nest", "nest": "Google Nest", "smartthings": "SmartThings", "homekit_controller": "HomeKit devices",
     "upnp": "UPnP", "dlna_dmr": "DLNA", "cast": "Google Cast", "sonos": "Sonos", "xsense": "X-Sense", "yolink": "YoLink",
     "ring": "Ring", "opower": "Utility (Opower)", "shelly": "Shelly", "template": "Templates", "group": "Groups",
-    "input_boolean": "Helpers", "wled": "WLED", "roborock": "Roborock", "ecowitt": "Ecowitt", "matter": "Matter",
+    "input_boolean": "Helpers", "wled": "WLED", "lifx": "LIFX", "wiz": "WiZ", "govee_light_local": "Govee", "lutron_caseta": "Lutron Caséta",
+    "waterguru": "WaterGuru", "roborock": "Roborock", "ecowitt": "Ecowitt", "matter": "Matter",
 }
 
 
@@ -843,6 +844,9 @@ class HomeAssistantAdapter(Adapter):
         self.hub.upsert_device(Device(id=did, name=str(name)[:80], source=self.source, model=model[:80], room=room, capabilities=caps),
                                replace=True, publish=False)
         attrs = {"ha_entities": [s["entity_id"] for s in sts][:40]}
+        ints = sorted(self._main_integrations(first["entity_id"]))
+        if ints:                                   # the system it comes from (Hue, Nanoleaf…), for the Lights page tabs
+            attrs["integration"] = integration_label(ints[0])
         if opening and ("contact" in caps or "shade" in caps):
             attrs["opening"] = opening
         if kind:

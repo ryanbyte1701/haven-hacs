@@ -20,7 +20,7 @@
   const timeOpts = () => ({ ...(timeCfg.hour12 !== undefined ? { hour12: timeCfg.hour12 } : {}), ...(timeCfg.timeZone ? { timeZone: timeCfg.timeZone } : {}) });
   let layout = { rooms: [], order: {}, pinned: [], views: [] };
   const VIEW_TYPES = { climate: "Climate", lights: "Lights", water: "Water", doors: "Doors", windows: "Windows", security: "Security",
-    controls: "Controls", switches: "Switches", appliances: "Appliances", battery: "Batteries", power: "Power" };
+    switches: "Switches", appliances: "Appliances", battery: "Batteries", power: "Power" };
   const VIEW_ICONS = ["dashboard", "home", "bedtime", "lightbulb", "thermostat", "water_drop", "sensor_door", "shield_lock",
     "power", "grass", "partly_cloudy_day", "videocam", "home_work", "tune", "battery_full", "lan", "sprinkler", "detector_smoke"];
   const customView = () => view.startsWith("v:") ? (layout.views || []).find(v => "v:" + v.id === view) : null;
@@ -35,17 +35,16 @@
     water: ["leak", "valve", "moisture", "rain_daily", "flow_rate", "water_pressure", "water_usage_today", "ph", "orp", "free_chlorine", "watering"],
     doors: ["contact"],
     security: ["contact", "lock", "motion", "presence", "occupancy", "vibration", "tamper", "smoke", "co", "co_ppm", "gas", "heat", "alarm_panel", "ding"],
-    controls: ["lock", "valve", "switch", "action", "light", "alarm_panel"],
     lights: ["light"],
   };
   const PAGES = new Set(["battery", "power", "settings", "devices", "air"]);
   const pluginPages = {};   // id -> { label, icon, title, render(el), onDevices?() }
-  const TABS = [["climate", "Climate", "thermostat"], ["lights", "Lights", "lightbulb"], ["water", "Water", "water_drop"],
+  const TABS = [["climate", "Climate", "thermostat"], ["lights", "Lights", "lightbulb"], ["water", "Water", "water_drop"], ["pool", "Pool", "pool"],
     ["doors", "Doors", "sensor_door"], ["windows", "Windows", "window"], ["security", "Security", "shield_lock"],
-    ["controls", "Controls", "tune"], ["switches", "Switches", "toggle_on"], ["appliances", "Appliances", "kitchen"]];
+    ["switches", "Switches", "toggle_on"], ["appliances", "Appliances", "kitchen"]];
   const TAB_IDS = TABS.map(t => t[0]);
-  const TITLES = { lights: "Lights", climate: "Climate", water: "Water", doors: "Doors", security: "Security", controls: "Controls", windows: "Windows", switches: "Switches",
-    battery: "Batteries", power: "Power", settings: "Settings", devices: "Devices", air: "Air quality", appliances: "Appliances" };
+  const TITLES = { lights: "Lights", climate: "Climate", water: "Water", doors: "Doors", security: "Security", windows: "Windows", switches: "Switches",
+    battery: "Batteries", power: "Power", settings: "Settings", devices: "Devices", air: "Air quality", appliances: "Appliances", pool: "Pool" };
   const LABEL = { humidity: "Humidity", moisture: "Soil", pressure: "Pressure", illuminance: "Light", co2: "CO₂", pm25: "PM2.5",
     wind_speed: "Wind", wind_gust: "Gust", rain_daily: "Rain", rain_rate: "Rate", uv: "UV", solar: "Solar",
     co_ppm: "CO", power: "Power", runtime: "Runtime", load: "Load", input_voltage: "Input", output_voltage: "Output",
@@ -58,6 +57,9 @@
     energy_today: "Today", energy_month: "This month", voltage: "Voltage", current: "Current" };
   const pretty = k => LABEL[k] || (/^run_(\d+)m$/.test(k) ? `${k.match(/\d+/)[0]} min` : null) || String(k).replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
   const kindOf = d => d.attributes?.kind || "";
+  // Pool: WaterGuru and anything named "pool" go to the Pool page only (not Whirlpool: "pool" as its own word)
+  const POOL_NAME = /(^|[^a-z])pool([^a-z]|$)/i;
+  const isPool = d => srcLabel(d) === "WaterGuru" || /waterguru/i.test(d.attributes?.integration || "") || kindOf(d) === "pool" || POOL_NAME.test(d.name);
   const META_ICON = { outdoor_temperature: "partly_cloudy_day", wind_speed: "air", wind_gust: "air", rain_daily: "rainy", rain_rate: "rainy", uv: "sunny", solar: "sunny",
     co2: "co2", pm25: "air", pressure: "science", illuminance: "light_mode", co_ppm: "detector_smoke", moisture: "grass",
     runtime: "timer", load: "speed", odometer: "speed", range: "route", fuel_level: "local_gas_station", input_voltage: "electrical_services", power: "bolt", brightness: "light_mode", color_temp: "thermostat", output_voltage: "electrical_services",
@@ -106,6 +108,8 @@
   const safeColor = c => /^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null;
   const visible = () => [...devices.values()].filter(d => !d.hidden);
   const lastUpdated = d => Math.max(0, ...Object.values(d.capabilities).map(c => c.updated || 0));
+  // the system a device comes from: Home Assistant names the integration (Philips Hue, Nanoleaf…); otherwise Haven's own
+  const brandOf = d => d.attributes?.integration || srcLabel(d);
   const srcLabel = d => { const s = (d.model || "").startsWith("demo (") ? d.model.slice(6, -1) : d.source; return SRC[s] || s; };
   const runtimeText = m => m == null ? "–" : m >= 90 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`;
 
@@ -120,6 +124,8 @@
   const isShade = d => has(d, "shade");
   const isWindow = d => isShade(d) || d.attributes?.opening === "window" || (d.attributes?.opening !== "door" && /\bwindows?\b/i.test(d.name));
   const isPlug = d => kindOf(d) === "smart_plug";
+  // a wall switch or dimmer that Home Assistant lists as a light (Lutron, Kasa, Inovelli…): a switch, not a bulb
+  const WALL_SWITCH = /(^|[^a-z])(switch|dimmer|keypad)([^a-z]|$)/i;
   const coAlarm = d => has(d, "co") && typeof val(d, "co") !== "number";   // outdoor AQI services report CO as a number
   const isLight = d => d.attributes?.kind === "light" || d.attributes?.kind === "group" || (has(d, "light") && has(d, "brightness"));
   const isGroup = d => d.attributes?.kind === "group";

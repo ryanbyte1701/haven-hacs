@@ -321,7 +321,8 @@
   }
   // ---------- Group by: Room | Type (chosen per page, saved on this device) ----------
   const groupable = () => view !== "settings" && !pluginPages[view] && (!PAGES.has(view) || view === "lights" || view === "battery");
-  const groupBy = () => groupable() && load("groupBy:" + view, load("groupByDefault", "room")) === "type" ? "type" : "room";
+  const GB_DEFAULT = { water: "type" };     // Water reads best by kind: leak sensors, valves, meters
+  const groupBy = () => groupable() && load("groupBy:" + view, GB_DEFAULT[view] || load("groupByDefault", "room")) === "type" ? "type" : "room";
   let gbNow = "room";                     // groupBy() of the page being drawn
   const roomOf = d => d.room || "Other";
   // inside a type section: by room (in the user's room order), then the user's card order, then the page's own order

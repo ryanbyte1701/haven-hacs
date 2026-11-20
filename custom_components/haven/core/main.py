@@ -472,7 +472,7 @@ async def command(device_id: str, cmd: Command):
     return {"ok": True}
 
 
-TAB_IDS = {"climate", "lights", "water", "doors", "windows", "security", "controls", "switches", "appliances"}   # app/static/js/01-core.js TABS
+TAB_IDS = {"climate", "lights", "water", "pool", "doors", "windows", "security", "switches", "appliances"}   # app/static/js/01-core.js TABS
 
 
 class DevicePatch(BaseModel):

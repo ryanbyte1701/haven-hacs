@@ -32,12 +32,18 @@
 
   // ---------- lights page ----------
   function lightsPage(list) {
-    const lights = list.filter(d => tabsOf(d).includes("lights") && !isGroup(d)), groups = list.filter(d => isGroup(d) && tabsOf(d).includes("lights"));
+    const all = list.filter(d => tabsOf(d).includes("lights"));
+    // a tab per lighting system (Hue, Nanoleaf…) when there is more than one; the choice is saved on this device
+    const brands = [...new Set(all.map(brandOf))].sort((a, b) => a.localeCompare(b));
+    let brand = load("lightBrand", ""); if (!brands.includes(brand)) brand = "";
+    const mine = brand ? all.filter(d => brandOf(d) === brand) : all;
+    const lights = mine.filter(d => !isGroup(d)), groups = mine.filter(isGroup);
     const on = lights.filter(d => val(d, "light"));
     $("#summary").innerHTML = tile(on.length ? "primary" : "", "lightbulb", `${on.length}<small> on</small>`,
       on.length ? on.map(d => d.name).slice(0, 3).join(", ") + (on.length > 3 ? ` +${on.length - 3}` : "") : "Everything is off", !!on.length) +
       tile("", "home_iot_device", `${lights.length}`, `lights · ${groups.length} room${groups.length === 1 ? "" : "s"} & zones`);
-    $("#alerts").innerHTML = "";
+    $("#alerts").innerHTML = brands.length > 1 ? `<div class="brandtabs" role="tablist" aria-label="Lighting systems">${[["", "All", all.length], ...brands.map(b => [b, b, all.filter(d => brandOf(d) === b).length])].map(([v, l, c]) =>
+      `<button type="button" role="tab" class="fchip ${brand === v ? "on" : ""}" aria-selected="${brand === v}" data-lightbrand="${esc(v)}">${brand === v ? icon("check") : ""}${esc(l)}<small>${c}</small></button>`).join("")}</div>` : "";
     if (!lights.length && !groups.length) {
       $("#rooms").innerHTML = `<div class="empty-state">${icon("lightbulb")}<h3>No lights yet</h3><p>Pair your Philips Hue bridge under Settings → Philips Hue. Zigbee2MQTT bulbs show up automatically through MQTT.</p>
         <button class="tonal-btn" data-goto="settings">${icon("settings")}Open Settings</button></div>`; return;

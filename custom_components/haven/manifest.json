@@ -20,5 +20,5 @@
     "httpx==0.28.*"
   ],
   "single_config_entry": true,
-  "version": "2026.11.18.1"
+  "version": "2026.11.20.1"
 }

@@ -16,6 +16,8 @@ async function copyText(text) {
   const VERB = { lock: "Lock", unlock: "Unlock", open: "Open", close: "Close", test: "Test", mute: "Mute", siren: "Sound siren on",
     disarm: "Disarm", arm_home: "Arm (home)", arm_away: "Arm (away)" };
   document.addEventListener("click", async e => {
+    const lb = e.target.closest?.("[data-lightbrand]");
+    if (lb) { store("lightBrand", lb.dataset.lightbrand); schedule(); return; }
     const t = e.target;
     const ts = t.closest("[data-tstep]"); if (ts) return thermoStep(ts);
     if (view === "settings" && settingsSub === "smart") {

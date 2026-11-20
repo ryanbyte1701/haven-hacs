@@ -1454,3 +1454,7 @@ html[data-mode="dark"] .thermo.heat .tact { color: #ffb067; } html[data-mode="da
 /* a colour picker never pushes its row wider than the screen (320 px phones) */
 input[type=color] { max-width: 100%; min-width: 0; }
 label:has(> input[type=color]) { min-width: 0; max-width: 100%; }
+
+/* Lights page: a tab per lighting system */
+.brandtabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.brandtabs .fchip small { opacity: .7; margin-left: 2px; }

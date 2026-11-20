@@ -190,16 +190,19 @@
     if (t === "battery") return val(d, "battery") != null || val(d, "battery_low") != null;
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
+    if (t === "pool") return isPool(d);
+    if (t === "climate" && deviceType(d) === "leak") return false;    // a leak sensor's temperature isn't room climate
     if (t === "security" && ["smoke", "alarm"].includes(deviceType(d))) return true;   // smoke/CO alarms always count as security
     if (t === "doors") return has(d, "contact") && !isWindow(d);
     if (t === "windows") return (has(d, "contact") && isWindow(d)) || isShade(d);
-    if (t === "switches") return !isLight(d) && (isPlug(d) || Object.entries(d.capabilities).some(([k, c]) =>
-      c.writable && (k === "switch" || k.startsWith("switch_")) && !/siren/i.test(k + (c.label || ""))));
+    // Switches: smart plugs and light switches only. Bulbs and the extra switches of a camera, vacuum… don't count
+    if (t === "switches") return has(d, "light") ? !isGroup(d) && WALL_SWITCH.test(`${d.name} ${d.model || ""}`)
+      : isPlug(d) || (deviceType(d) === "plug" && !!d.capabilities.switch?.writable);
     if (t === "appliances") return ["appliance", "vacuum", "air_purifier"].includes(kindOf(d)) || has(d, "vacuum_state");
-    const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && (t !== "controls" || d.capabilities[k].writable) && !(k === "co" && !coAlarm(d))
+    const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && !(k === "co" && !coAlarm(d))
       && !(k === "occupancy" && isThermostat(d)));   // a thermostat's built-in occupancy sensor doesn't make it a security device
   }
-  const autoTabs = d => TAB_IDS.filter(t => typeMatch(d, t));
+  const autoTabs = d => isPool(d) ? ["pool"] : TAB_IDS.filter(t => typeMatch(d, t));   // pool devices live on Pool alone
   const tabsOf = d => Array.isArray(d.categories) ? d.categories : autoTabs(d);
   function viewMatch(v, d) {
     if ((v.devices || []).includes(d.id)) return true;
@@ -213,7 +216,7 @@
     const cv = customView(); if (cv) return viewMatch(cv, d);
     if (TAB_IDS.includes(view)) return tabsOf(d).includes(view);
     const g = GROUPS[view];
-    return g && g.some(k => has(d, k) && (view !== "controls" || d.capabilities[k].writable));
+    return g && g.some(k => has(d, k));
   }
 
   // ---------- table ----------

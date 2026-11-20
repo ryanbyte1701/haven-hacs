@@ -226,7 +226,7 @@
   // ---- Home page & menu customization (saved on the server, same on every screen) ----
   let homeDraft = null;
   const PAGE_LIST = [["climate", "Climate"], ["air", "Air quality"], ["lights", "Lights"], ["water", "Water"], ["doors", "Doors"], ["windows", "Windows"],
-    ["security", "Security"], ["controls", "Controls"], ["switches", "Switches"], ...(edition === "hacs" ? [["appliances", "Appliances"]] : []), ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
+    ["security", "Security"], ["switches", "Switches"], ...(edition === "hacs" ? [["appliances", "Appliances"]] : []), ["battery", "Batteries"], ["power", "Power"], ["devices", "Devices"], ["automations", "Automations"]];
   function homeSummary() {
     const c = homeCfg(), on = ["weather", "climate", "thermostat", "aqi_outdoor", "aqi_indoor"].filter(k => c[k]).length;
     const hidden = (c.hidden_pages || []).length;

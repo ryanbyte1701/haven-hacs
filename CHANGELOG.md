@@ -2,6 +2,20 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-19
+
+- New **Pool** page: WaterGuru and anything with "pool" in its name (as its own word, so not Whirlpool) go there
+  and nowhere else. It shows in the menu once there is something on it.
+- Lights: when lights come from more than one system, tabs at the top pick All or one system (Philips Hue,
+  Nanoleaf…). Group by Room or Type still works inside each tab, and the choice is remembered on each device.
+- Water groups by type (leak sensors, valves, meters) by default; Room is still a tap away.
+- Climate no longer shows leak sensors' temperature readings.
+- Security puts every smoke and CO alarm together in one section at the top.
+- The Controls page is gone. Switches now holds only smart plugs and wall switches or dimmers (named switch, dimmer
+  or keypad), never bulbs or a camera's or vacuum's extra switches.
+
+- Each device records the integration it comes from, which the Lights tabs use.
+
 ## 2026-11-17 (v11)
 
 - The Home page's title, hidden tiles and hidden pages are kept across a restart (they were lost, and the next
