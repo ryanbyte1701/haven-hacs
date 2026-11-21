@@ -2,6 +2,16 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-20
+
+- Switches includes outlets by name or model (outlet, plug, socket, power strip), so a Hue Smart Plug that comes
+  through as a light and each outlet of a power strip show up.
+- A water valve or watering kit that comes through as a plain switch (named valve, watering, irrigation, sprinkler)
+  counts as a valve: it goes to Water, not Switches.
+
+- A power strip's outlets keep their full names ("Tortoise heater outlet" was cut to "rtoise heater outlet"): the
+  device's name is only taken off the front at a word break, and a second outlet is labelled with its own name.
+
 ## 2026-11-19
 
 - New **Pool** page: WaterGuru and anything with "pool" in its name (as its own word, so not Whirlpool) go there

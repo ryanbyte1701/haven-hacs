@@ -126,6 +126,11 @@
   const isPlug = d => kindOf(d) === "smart_plug";
   // a wall switch or dimmer that Home Assistant lists as a light (Lutron, Kasa, Inovelli…): a switch, not a bulb
   const WALL_SWITCH = /(^|[^a-z])(switch|dimmer|keypad)([^a-z]|$)/i;
+  // an outlet by its name or model (Hue Smart Plug comes through as a light; a power strip's outlets as switch_…)
+  // a water valve or watering kit that Home Assistant gives as a plain switch
+  const VALVE_NAME = /(^|[^a-z])(valves?|watering|irrigation|sprinklers?|water timer)([^a-z]|$)/i;
+  const PLUG_NAME = /(^|[^a-z])(outlets?|plugs?|sockets?|power ?strips?|receptacles?)([^a-z]|$)/i;
+  const writableSwitch = d => Object.entries(d.capabilities).some(([k, c]) => c.writable && (k === "switch" || k.startsWith("switch_")) && !/siren|chime|privacy|camera|motion/i.test(k + (c.label || "")));
   const coAlarm = d => has(d, "co") && typeof val(d, "co") !== "number";   // outdoor AQI services report CO as a number
   const isLight = d => d.attributes?.kind === "light" || d.attributes?.kind === "group" || (has(d, "light") && has(d, "brightness"));
   const isGroup = d => d.attributes?.kind === "group";
@@ -181,7 +186,7 @@
     if (has(d, "lock")) return "lock";
     if (["pool", "water_monitor", "irrigation_zone", "irrigation_controller"].includes(k) || any("ph", "flow_rate", "watering", "water_usage_today")) return "water";
     if (has(d, "leak")) return "leak";
-    if (has(d, "valve")) return "valve";
+    if (has(d, "valve") || (has(d, "switch") && !isLight(d) && VALVE_NAME.test(`${d.name} ${d.model || ""}`))) return "valve";
     if (isShade(d)) return "shade";
     if (has(d, "contact")) return "door";
     if (any("motion", "presence") || (has(d, "occupancy") && typeof val(d, "occupancy") !== "number")) return "motion";

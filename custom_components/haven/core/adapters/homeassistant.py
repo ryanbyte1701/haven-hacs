@@ -789,6 +789,9 @@ class HomeAssistantAdapter(Adapter):
                 final = cname
                 if final in caps:                          # two entities give the same reading: keep both
                     final = f"{cname}_{re.sub(r'[^A-Za-z0-9_]', '_', eid.split('.', 1)[1])[-20:]}"
+                    fname = (st.get("attributes") or {}).get("friendly_name")
+                    if cname in ("switch", "light") and fname and "label" not in kw:
+                        kw = {**kw, "label": str(fname)[:40]}       # a power strip's second outlet: by its own name
                 kw = dict(kw)
                 if dom in ("binary_sensor", "sensor"):
                     kw["writable"] = False             # a plug-type binary sensor reports; it can't be switched
@@ -947,7 +950,7 @@ class HomeAssistantAdapter(Adapter):
             return rest or "Siren"
         if not fn or not dn or fn.lower() == dn.lower():
             return None
-        if fn.lower().startswith(dn.lower()):
+        if fn.lower().startswith(dn.lower()) and (len(fn) == len(dn) or fn[len(dn)] in " -_:·"):   # not mid-word
             rest = fn[len(dn):].strip(" -_:·")
             return None if rest.lower() in ("", "switch", "power", "outlet", "plug", "relay") else rest
         return None

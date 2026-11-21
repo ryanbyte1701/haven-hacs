@@ -191,13 +191,17 @@
     if (t === "power") return isUps(d) || isPlug(d);
     if (t === "lights") return isLight(d);
     if (t === "pool") return isPool(d);
+    if (t === "water" && deviceType(d) === "valve") return true;
     if (t === "climate" && deviceType(d) === "leak") return false;    // a leak sensor's temperature isn't room climate
     if (t === "security" && ["smoke", "alarm"].includes(deviceType(d))) return true;   // smoke/CO alarms always count as security
     if (t === "doors") return has(d, "contact") && !isWindow(d);
     if (t === "windows") return (has(d, "contact") && isWindow(d)) || isShade(d);
     // Switches: smart plugs and light switches only. Bulbs and the extra switches of a camera, vacuum… don't count
-    if (t === "switches") return has(d, "light") ? !isGroup(d) && WALL_SWITCH.test(`${d.name} ${d.model || ""}`)
-      : isPlug(d) || (deviceType(d) === "plug" && !!d.capabilities.switch?.writable);
+    if (t === "switches") {
+      const txt = `${d.name} ${d.model || ""}`;
+      return has(d, "light") ? !isGroup(d) && (WALL_SWITCH.test(txt) || PLUG_NAME.test(txt))
+        : isPlug(d) || (writableSwitch(d) && (["plug", "other"].includes(deviceType(d)) || PLUG_NAME.test(txt)));
+    }
     if (t === "appliances") return ["appliance", "vacuum", "air_purifier"].includes(kindOf(d)) || has(d, "vacuum_state");
     const g = GROUPS[t]; return !!g && g.some(k => has(d, k) && !(k === "co" && !coAlarm(d))
       && !(k === "occupancy" && isThermostat(d)));   // a thermostat's built-in occupancy sensor doesn't make it a security device
