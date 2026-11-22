@@ -20,7 +20,7 @@
   const timeOpts = () => ({ ...(timeCfg.hour12 !== undefined ? { hour12: timeCfg.hour12 } : {}), ...(timeCfg.timeZone ? { timeZone: timeCfg.timeZone } : {}) });
   let layout = { rooms: [], order: {}, pinned: [], views: [] };
   const VIEW_TYPES = { climate: "Climate", lights: "Lights", water: "Water", doors: "Doors", windows: "Windows", security: "Security",
-    switches: "Switches", appliances: "Appliances", battery: "Batteries", power: "Power" };
+    switches: "Switches", appliances: "Appliances", pool: "Pool", battery: "Batteries", power: "Power" };
   const VIEW_ICONS = ["dashboard", "home", "bedtime", "lightbulb", "thermostat", "water_drop", "sensor_door", "shield_lock",
     "power", "grass", "partly_cloudy_day", "videocam", "home_work", "tune", "battery_full", "lan", "sprinkler", "detector_smoke"];
   const customView = () => view.startsWith("v:") ? (layout.views || []).find(v => "v:" + v.id === view) : null;

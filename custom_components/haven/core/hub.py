@@ -171,6 +171,9 @@ class Hub:
         o = self.overrides.setdefault(device_id, {})
         if fields.pop("auto_categories", None):
             o.pop("categories", None)
+        if fields.get("card_style") == "":
+            fields.pop("card_style")
+            o.pop("card_style", None)
         o.update({k: v for k, v in fields.items() if v is not None})
         dev = self.devices.get(device_id)
         if dev:
@@ -188,6 +191,7 @@ class Hub:
             if k in ("name", "room", "hidden"):
                 setattr(dev, k, v)
         dev.categories = self.overrides.get(dev.id, {}).get("categories")
+        dev.card_style = self.overrides.get(dev.id, {}).get("card_style")
 
     # ---------- adapter-facing API ----------
     def upsert_device(self, dev: Device, replace: bool = False, publish: bool = True) -> None:

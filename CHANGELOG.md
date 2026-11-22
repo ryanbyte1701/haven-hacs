@@ -2,6 +2,23 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-21
+
+- Three more card styles: **Tile** (a square; the round icon turns a light or switch on and off), **Bubble** (a pill
+  that fills up to a light's brightness) and **Glance** (small and round, for a wall of readings). Pick one for the
+  whole dashboard in Settings → Appearance, or give a single device its own style in its Edit dialog.
+- Settings → Diagnostics also describes the dashboard as your screen shows it, to help design it: screen size,
+  appearance choices, what is on each page (devices, rooms, types, card styles), custom views, the Home page setup,
+  readings Haven doesn't recognise yet, and for each device its type, pages, card style and whether its card has to
+  hide controls. No names or rooms are included.
+- The diagnostics anonymiser replaces names as whole words only and leaves product names alone ("Home Assistant" no
+  longer became "Room 36 Assistant" when a room is called Home).
+- A metered socket that only reports power (each outlet of a TP-Link HS300) shows on the Power page.
+- Climate leaves out water temperatures (water line monitors and valves, like leak sensors).
+
+- No more "accesses DeviceEntry.config_entries" deprecation warning: Haven reads a device's single config entry the
+  way Home Assistant 2026.10 and later expect.
+
 ## 2026-11-20
 
 - Switches includes outlets by name or model (outlet, plug, socket, power strip), so a Hue Smart Plug that comes

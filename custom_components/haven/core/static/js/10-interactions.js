@@ -1,3 +1,40 @@
+// What this browser shows, for the diagnostics file (to help design the dashboard): the screen, the appearance
+// choices, every page with what is on it, and per device its type, pages and whether its card fits. No names or rooms
+// are sent; the server swaps device ids for the file's pseudonyms.
+function dashboardInfo() {
+  const list = [...devices.values()], countBy = (xs, f) => xs.reduce((o, x) => { const k = f(x); o[k] = (o[k] || 0) + 1; return o; }, {});
+  const hc = homeCfg(), pages = {};
+  for (const [id] of TABS) {
+    const on = list.filter(d => !d.hidden && tabsOf(d).includes(id));
+    pages[id] = { devices: on.length, rooms: new Set(on.map(roomOf)).size, offline: on.filter(d => !d.online).length,
+      group_by: load("groupBy:" + id, GB_DEFAULT[id] || load("groupByDefault", "room")), hidden_in_menu: (hc.hidden_pages || []).includes(id),
+      types: countBy(on, deviceType), card_styles: countBy(on, styleOf) };
+  }
+  const devs = {};
+  for (const d of list) {
+    let fit = ""; try { fit = fitCard(d, sparkCap(d)); } catch { fit = ""; }
+    const keys = Object.keys(d.capabilities);
+    devs[d.id] = { type: deviceType(d), kind: kindOf(d) || null, pages: tabsOf(d), pages_set_by_hand: Array.isArray(d.categories),
+      card_style: d.card_style || null, pinned: layout.pinned.includes(d.id), hidden: !!d.hidden, has_room: !!d.room, name_length: d.name.length,
+      readings: keys.length, controls: controlRows(d).length, card_hides_controls: fit.includes("More controls"), card_has_more: fit.includes("more-ctl"),
+      repeated_lights: keys.filter(k => /^light_/.test(k)).length, chart: sparkCap(d) || null, system: brandOf(d).length <= 40 ? brandOf(d) : null };
+  }
+  const other = list.filter(d => deviceType(d) === "other");
+  return {
+    screen: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, phone: innerWidth < 840, touch: matchMedia("(pointer: coarse)").matches,
+      standalone: matchMedia("(display-mode: standalone)").matches, in_home_assistant: !!window.HAVEN_URL, dark: matchMedia("(prefers-color-scheme: dark)").matches },
+    prefs: { card_style: cardStyle, view_mode: mode, chart_style: chartStyle, connect_readings: joinGaps, unit, group_by_default: load("groupByDefault", "room"),
+      start_page: view.startsWith("v:") ? "custom view" : view, light_system_tab: !!load("lightBrand", "") },
+    pages,
+    views: (layout.views || []).map(v => ({ types: v.types || [], sources: v.sources || [], rooms: (v.rooms || []).length, keywords: (v.keywords || []).length, devices: (v.devices || []).length,
+      shown: list.filter(d => viewMatch(v, d)).length })),
+    layout: { rooms_ordered: (layout.rooms || []).length, pinned: (layout.pinned || []).length, custom_order_rooms: Object.keys(layout.order || {}).length,
+      home: Object.fromEntries(Object.entries(hc).filter(([k, v]) => k !== "title" && (typeof v === "boolean" || Array.isArray(v)))) },
+    types: { all: countBy(list, deviceType), unrecognised_readings: countBy(other.flatMap(d => Object.keys(d.capabilities)), k => k.split("_")[0]) },
+    devices: devs,
+  };
+}
+
 // Copy text: the clipboard API only exists on https and localhost, so fall back to a hidden text box (plain http)
 async function copyText(text) {
   try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; } } catch { /* try the fallback */ }
@@ -58,7 +95,8 @@ async function copyText(text) {
       try {
         // the server makes the file and a short-lived download link (a plain link downloads on phones and in the
         // Home Assistant app, where a file made in the page can't be saved)
-        const data = await api("/api/diagnostics/link", { method: "POST" });
+        let dash = null; try { dash = dashboardInfo(); } catch (err) { console.warn("dashboard info", err); }
+        const data = await api("/api/diagnostics/link", { method: "POST", body: JSON.stringify({ dashboard: dash }) });
         const s = data.summary || {}, sumText = `Haven ${data.haven?.edition === "og" ? "OG" : "for Home Assistant"}${data.haven?.version ? " " + data.haven.version : ""} · ${s.devices} devices (${s.offline} offline) · ` +
           Object.entries(s.by_integration || {}).map(([k, v]) => `${k} ${v}`).join(", ");
         const lines = [sumText, "Integrations: " + Object.entries(data.integrations || {}).map(([k, v]) => `${k}: ${v}`).join("; "),
@@ -101,11 +139,11 @@ async function copyText(text) {
     const pr = t.closest("[data-prange]"); if (pr) { powerRange = pr.dataset.prange; store("powerRange", powerRange); return loadPower(); }
     if (t.closest("[data-edit]") && isAdmin()) {
       const id = t.closest("[data-id]").dataset.id, d = devices.get(id), dlg = $("#edit"), f = dlg.querySelector("form");
-      f.name.value = d.name; f.room.value = d.room || ""; f.hidden.checked = d.hidden; f.pinned.checked = layout.pinned.includes(id); dlg.returnValue = "";
+      f.name.value = d.name; f.room.value = d.room || ""; f.hidden.checked = d.hidden; f.cardstyle.value = d.card_style || ""; f.pinned.checked = layout.pinned.includes(id); dlg.returnValue = "";
       dlg.showModal();
       dlg.onclose = async () => { if (dlg.returnValue !== "save") return;
         try { await api(`/api/devices/${encodeURIComponent(id)}`, { method: "PATCH",
-          body: JSON.stringify({ name: f.name.value, room: f.room.value, hidden: f.hidden.checked }) });
+          body: JSON.stringify({ name: f.name.value, room: f.room.value, hidden: f.hidden.checked, card_style: f.cardstyle.value }) });
           const pin = f.pinned.checked, was = layout.pinned.includes(id);
           if (pin !== was) { layout.pinned = pin ? [...layout.pinned, id] : layout.pinned.filter(x => x !== id); await saveLayout(); schedule(); }
           snack("Saved"); }

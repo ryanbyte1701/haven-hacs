@@ -229,7 +229,9 @@ class HassLocalAdapter(HomeAssistantAdapter):
             entries = [reg.devices[d] if isinstance(d, str) else d for d in list(reg.devices)]
             return [{"id": d.id, "name": d.name, "name_by_user": d.name_by_user, "manufacturer": d.manufacturer,
                      "model": d.model, "area_id": d.area_id, "identifiers": _plain(d.identifiers),
-                     "config_entries": _plain(getattr(d, "config_entries", None) or []),
+                     # Home Assistant 2026.10+: one config entry per device (config_entries is deprecated)
+                     "config_entries": [d.config_entry_id] if getattr(d, "config_entry_id", None)
+                     else _plain(getattr(d, "config_entries", None) or []),
                      "disabled_by": _plain(d.disabled_by)} for d in entries]
         if kind == "config/entity_registry/list":
             from homeassistant.helpers import entity_registry as er

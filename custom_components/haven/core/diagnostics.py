@@ -59,13 +59,20 @@ _HOSTNAME = re.compile(r"\b(?:[a-z0-9-]+\.)+(?:local|lan|home|internal|localdoma
 _LONG = re.compile(r"\b[A-Za-z0-9_\-]{20,}\b")        # tokens, keys, serial-like ids
 
 
+_KEEP = re.compile(r"Home Assistant|Haven|HomeKit|ESPHome|SmartThings|Google Home|Apple Home", re.I)
+
+
 def scrub(text: Any, secrets_: list[str] = (), names: dict[str, str] | None = None) -> str:
     """Remove what identifies the home. `names` maps the real device names, ids and rooms to their pseudonyms."""
     s = sec.redact(str(text), secrets_)
     if names:
         keys = sorted((k for k in names if len(k) >= 3), key=len, reverse=True)
         if keys:
-            s = re.sub("|".join(re.escape(k) for k in keys), lambda m: names[m.group(0)], s)
+            # product names a room or device may share a word with ("Home" in Home Assistant) are kept
+            kept: list[str] = []
+            s = _KEEP.sub(lambda m: kept.append(m.group(0)) or f"\x00{len(kept) - 1}\x00", s)
+            s = re.sub(r"(?<![\w])(?:" + "|".join(re.escape(k) for k in keys) + r")(?![\w])", lambda m: names[m.group(0)], s)   # whole words only
+            s = re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], s)
     s = _URL.sub(lambda m: f"{m.group(1)}://<host>", s)
     s = _EMAIL.sub("<email>", s)
     s = _MAC.sub("<mac>", s)
@@ -205,7 +212,38 @@ def _version() -> str | None:
     return None
 
 
-def build(hub, manager, history_store, settings_mod, *, extra: dict | None = None) -> dict:
+_DASH_WORDS = re.compile(r"[a-z0-9_ .:%+\-/#°×]{0,40}", re.I)
+
+
+def _dash_value(v: Any, names: dict[str, str], depth: int = 0) -> Any:
+    """What the browser sent about its dashboard, kept only as numbers, booleans and short words (no free text)."""
+    if depth > 5:
+        return None
+    if isinstance(v, bool) or v is None or isinstance(v, (int, float)):
+        return v
+    if isinstance(v, str):
+        s = scrub(v[:60], (), names)
+        return s if _DASH_WORDS.fullmatch(s) else "<text>"
+    if isinstance(v, list):
+        return [_dash_value(x, names, depth + 1) for x in v[:500]]
+    if isinstance(v, dict):
+        return {str(k)[:40]: _dash_value(x, names, depth + 1) for k, x in list(v.items())[:500] if _DASH_WORDS.fullmatch(str(k))}
+    return None
+
+
+def _dashboard(client: Any, ids: dict[str, str], names: dict[str, str]) -> dict | None:
+    """The browser's view of the dashboard: screen, appearance choices, every page with what is on it, and per
+    device its type, pages and how its card fits. Device ids become the file's pseudonyms; anything else is dropped."""
+    if not isinstance(client, dict):
+        return None
+    out = {k: _dash_value(client[k], names) for k in ("screen", "prefs", "pages", "views", "layout", "types") if k in client}
+    devs = client.get("devices")
+    if isinstance(devs, dict):
+        out["devices"] = {ids[k]: _dash_value(v, names) for k, v in devs.items() if k in ids and isinstance(v, dict)}
+    return out
+
+
+def build(hub, manager, history_store, settings_mod, *, extra: dict | None = None, client: Any = None) -> dict:
     """The whole dump as a JSON-able dict."""
     from . import edition
     now = time.time()
@@ -247,6 +285,7 @@ def build(hub, manager, history_store, settings_mod, *, extra: dict | None = Non
             "rooms": len(anon.rooms),
         },
         "integrations": {k: scrub(v, secrets_, names) for k, v in sorted(statuses.items())},
+        "dashboard": _dashboard(client, {d.id: out["id"] for d, out in zip(ordered, devs, strict=True)}, names),
         "settings": _settings(settings_mod, statuses, secrets_, names),
         "history": hist,
         **(extra or {}),

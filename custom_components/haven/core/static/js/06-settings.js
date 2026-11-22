@@ -87,7 +87,7 @@
   }
   function appearanceSummary() {
     return [{ light: "Light", dark: "Dark", auto: "Auto" }[load("mode", "auto")], root.dataset.seed[0].toUpperCase() + root.dataset.seed.slice(1),
-      `°${unit}`, cardStyle === "minimal" ? "Minimal cards" : "Standard cards", mode === "table" ? "Table" : "Cards",
+      `°${unit}`, `${(CARD_STYLES.find(s => s[0] === cardStyle) || CARD_STYLES[0])[1]} cards`, mode === "table" ? "Table" : "Cards",
       `${(CHART_STYLES.find(c => c[0] === chartStyle) || CHART_STYLES[0])[1]} charts`, load("groupByDefault", "room") === "type" ? "By type" : ""].filter(Boolean).join(" · ");
   }
   // ---------- Settings → Smart assignment: suggested page and room changes, applied only once approved ----------
@@ -112,7 +112,7 @@
       if (isPool(d)) {            // pool devices live on Pool alone
         if (!same(next, ["pool"])) { next = ["pool"]; why.push(srcLabel(d) === "WaterGuru" ? "it's a WaterGuru pool device" : `the name mentions "pool"`); }
       } else {
-      if (next.includes("climate") && deviceType(d) === "leak") { drop("climate"); why.push("a leak sensor's temperature isn't room climate"); }
+      if (next.includes("climate") && ["leak", "water", "valve"].includes(deviceType(d))) { drop("climate"); why.push("water temperature isn't room climate"); }
       if (next.includes("switches") && !typeMatch(d, "switches")) { drop("switches");
         why.push(has(d, "light") ? "it's a light, not a light switch or plug" : "Switches is only for smart plugs and light switches"); }
       if (!next.includes("switches") && typeMatch(d, "switches") && has(d, "light")) { add("switches"); why.push("its name says it's a light switch"); }
@@ -450,7 +450,9 @@
           <div class="frow"><span>Color</span><div class="swatches" id="swatches">${Object.entries(SEEDS).map(([n, c]) =>
             `<button type="button" class="swatch ${root.dataset.seed === n ? "on" : ""}" data-seed="${n}" style="background:${c}" title="${n}">${root.dataset.seed === n ? icon("check_circle", true) : ""}</button>`).join("")}</div></div>
           <div class="frow"><span>Temperature</span>${seg("unit-seg", [["F", "°F"], ["C", "°C"]], unit, "unit")}</div>
-          <div class="frow"><span>Card style</span>${seg("style-seg", [["standard", "Standard", "dashboard"], ["minimal", "Minimal", "view_agenda"]], cardStyle, "cstyle")}</div>
+          <div class="frow frow-wrap"><span>Card style</span><div id="style-seg" class="style-pick" role="radiogroup" aria-label="Card style">${CARD_STYLES.map(([v, l, ic]) =>
+            `<button type="button" role="radio" aria-checked="${cardStyle === v}" class="fchip ${cardStyle === v ? "on" : ""}" data-cstyle="${v}">${icon(ic)}${l}</button>`).join("")}</div></div>
+          <p class="muted small">A single device can have its own style: tap Edit on its card.</p>
           <div class="frow chartrow"><span>Charts</span><div class="chart-picks" id="chart-seg">${CHART_STYLES.map(([k, l]) => `<button type="button" class="chart-pick ${chartStyle === k ? "on" : ""}" data-chart="${k}" aria-pressed="${chartStyle === k}">
             <svg viewBox="0 0 72 28" class="spark c-${k}" preserveAspectRatio="none">${plotSvg([[[0, 20], [9, 14], [18, 17], [27, 8], [36, 11], [45, 5], [54, 13], [63, 9], [72, 12]]], 28, k, 5)}</svg><small>${l}</small></button>`).join("")}</div></div>
           <div class="frow"><span>Connect readings<small class="muted">draw a line across gaps between readings (devices that report now and then)</small></span>
@@ -467,7 +469,9 @@
           <p>A file to send when something doesn't work right. It has every device's type, make and model, integration,
             what it reports (readings, states, units, ranges, which ones you can control, how long ago each was updated),
             online and battery state, each integration's status, which settings are filled in, the history storage and
-            recent warnings.</p>
+            recent warnings. It also describes the dashboard as this screen shows it, to help design it: the screen size,
+            your appearance choices, what is on each page, and for each device its type, pages, card style and whether
+            its card has to hide controls.</p>
           <p class="muted small">Anonymous: device and room names become "Thermostat 1", "Room A"…; ids are scrambled; IP and MAC
             addresses, e-mail addresses, host names, tokens and passwords are removed; settings values are never included.
             Open the file to check before you share it.</p>

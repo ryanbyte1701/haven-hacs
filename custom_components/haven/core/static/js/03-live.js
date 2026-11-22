@@ -166,8 +166,8 @@
       return btn("valve", open ? "close" : "open", "valve", open ? "Close valve" : "Open valve", open); }
     return "";
   }
-  function miniCard(d) {
-    const [ic, tone] = deviceIcon(d);
+  // the headline and second line the compact cards (Minimal, Tile, Bubble, Glance) show
+  function cardBits(d) {
     const st = statusOf(d);
     let big = "", small = "";
     if (has(d, "ph") && typeof val(d, "ph") === "number") { big = `${fmt(val(d, "ph"))}<small> pH</small>`; small = [has(d, "temperature") ? `${temp(val(d, "temperature"))}°` : "", st ? st[0] : ""].filter(Boolean).join(" · "); }
@@ -175,6 +175,11 @@
     else if (has(d, "moisture")) { big = `${val(d, "moisture") == null ? "–" : Math.round(val(d, "moisture"))}<small>%</small>`; small = "Soil moisture"; }
     else if (isUps(d)) { big = `${n(val(d, "battery"))}<small>%</small>`; small = `${st[0]} · ${runtimeText(val(d, "runtime"))}`; }
     else if (st) { big = `<span class="word">${esc(st[0])}</span>`; small = detailText(d); }
+    return { big, small, st };
+  }
+  function miniCard(d) {
+    const [ic, tone] = deviceIcon(d);
+    const { big, small, st } = cardBits(d);
     const b = val(d, "battery");
     const lowBat = batteryLow(d) && !isUps(d) ? `<span class="mini-bat">${icon("battery_alert", true)}${b != null ? n(b) + "%" : "Low"}</span>` : "";
     const lit = isLight(d) && val(d, "light");
@@ -186,13 +191,63 @@
     </article>`;
   }
 
+  // ---------- more card styles: Tile, Bubble, Glance ----------
+  const CARD_STYLES = [["standard", "Standard", "dashboard"], ["minimal", "Minimal", "view_agenda"], ["tile", "Tile", "grid_view"],
+    ["bubble", "Bubble", "radio_button_checked"], ["glance", "Glance", "apps"]];
+  const styleOf = d => d.card_style || cardStyle;
+  const mainSwitch = d => d.capabilities.light?.writable ? "light" : d.capabilities.switch?.writable ? "switch" : null;
+  // the round icon: for a light or switch it is the on/off button
+  function iconBubble(d, cls) {
+    const [ic, tone] = deviceIcon(d), k = mainSwitch(d);
+    if (k && !editing()) { const on = !!val(d, k);
+      return `<button type="button" class="${cls} ${tone} ${on ? "on" : ""}" data-cmd="${k}" data-val="${esc(JSON.stringify(!on))}" aria-pressed="${on}" aria-label="Turn ${esc(d.name)} ${on ? "off" : "on"}">${icon(ic, on || !!tone)}</button>`; }
+    return `<span class="${cls} ${tone}">${icon(ic, !!tone)}</span>`;
+  }
+  const stripTags = h => { const t = document.createElement("template"); t.innerHTML = h; return t.content.textContent.trim(); };
+  function stateText(d) {               // one plain line: "62%", "Off", "21° · 40% RH", "Locked"
+    const k = mainSwitch(d);
+    if (k === "light" || (isLight(d) && has(d, "light"))) { const on = !!val(d, "light"), b = val(d, "brightness");
+      return on ? (b != null ? `${n(b)}%` : "On") : "Off"; }
+    const { big, small } = cardBits(d);
+    return [stripTags(big), small].filter(Boolean).join(" · ") || (k ? (val(d, k) ? "On" : "Off") : "");
+  }
+  const cardClasses = d => { const lit = isLight(d) && val(d, "light");
+    return [`${isAlarm(d) ? "alarm" : ""} ${d.online ? "" : "offline"} ${lit ? "lit" : ""} ${mainSwitch(d) && val(d, mainSwitch(d)) ? "is-on" : ""}`, lit ? `style="--lit:${glow(d)}"` : ""]; };
+  const roomLine = d => gbNow === "type" ? `<span class="croom">${esc(d.room || "No room")}</span>` : "";
+  const openArea = () => editing() ? "" : "data-open-device";
+  const editBtn = `<button class="card-edit" data-edit aria-label="Edit">${icon("edit")}</button>`;
+  function tileCard(d) {                // a square: icon button on top, name and state below
+    const [cls, sty] = cardClasses(d), { big, small } = cardBits(d), k = mainSwitch(d);
+    return `<article class="card dtile ${cls}" data-id="${esc(d.id)}" ${sty}>
+      <div class="dtile-top">${iconBubble(d, "bub-ic")}${editBtn}${k ? "" : quickAction(d)}</div>
+      <div class="dtile-body" ${openArea()}><div class="name" title="${esc(d.name)}">${esc(d.name)}</div>
+        <div class="dtile-state">${k ? esc(stateText(d)) : big ? `<b>${big}</b>${small ? ` <span>${esc(small)}</span>` : ""}` : esc(small)}</div>
+        ${roomLine(d) ? `<div class="dtile-room">${roomLine(d)}</div>` : ""}</div></article>`;
+  }
+  function bubbleCard(d) {              // a pill: a light fills up to its brightness
+    const [cls, sty] = cardClasses(d), k = mainSwitch(d);
+    const fill = k === "light" && val(d, "light") ? (val(d, "brightness") ?? 100) : k && val(d, k) ? 100 : 0;
+    return `<article class="card bub ${cls}" data-id="${esc(d.id)}" ${sty}><span class="bub-fill" style="width:${Math.max(0, Math.min(100, +fill || 0))}%"></span>
+      ${iconBubble(d, "bub-ic")}
+      <div class="bub-body" ${openArea()}><div class="name" title="${esc(d.name)}">${esc(d.name)}</div>
+        <div class="bub-state">${roomLine(d)}${roomLine(d) ? " · " : ""}${esc(stateText(d))}${d.online ? "" : " · Offline"}</div></div>
+      ${editBtn}${k ? "" : quickAction(d)}</article>`;
+  }
+  function glanceCard(d) {              // small and round: icon, the one number or word, name
+    const [cls, sty] = cardClasses(d), k = mainSwitch(d), { big } = cardBits(d);
+    return `<article class="card glance ${cls}" data-id="${esc(d.id)}" ${sty}>${editBtn}
+      ${iconBubble(d, "bub-ic")}
+      <div class="glance-val" ${openArea()}>${k ? esc(stateText(d)) : big || esc(stateText(d)) || "&nbsp;"}</div>
+      <div class="name" title="${esc(d.name)}">${esc(d.name)}</div></article>`;
+  }
+
   function typeMatch(d, t) {
     if (t === "battery") return val(d, "battery") != null || val(d, "battery_low") != null;
-    if (t === "power") return isUps(d) || isPlug(d);
+    if (t === "power") return isUps(d) || isPlug(d) || (has(d, "power") && deviceType(d) === "other");   // a metered socket (HS300 outlet)
     if (t === "lights") return isLight(d);
     if (t === "pool") return isPool(d);
     if (t === "water" && deviceType(d) === "valve") return true;
-    if (t === "climate" && deviceType(d) === "leak") return false;    // a leak sensor's temperature isn't room climate
+    if (t === "climate" && ["leak", "water", "valve"].includes(deviceType(d))) return false;   // water temperature (leak sensor, water line) isn't room climate
     if (t === "security" && ["smoke", "alarm"].includes(deviceType(d))) return true;   // smoke/CO alarms always count as security
     if (t === "doors") return has(d, "contact") && !isWindow(d);
     if (t === "windows") return (has(d, "contact") && isWindow(d)) || isShade(d);

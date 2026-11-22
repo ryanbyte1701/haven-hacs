@@ -1458,3 +1458,64 @@ label:has(> input[type=color]) { min-width: 0; max-width: 100%; }
 /* Lights page: a tab per lighting system */
 .brandtabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .brandtabs .fchip small { opacity: .7; margin-left: 2px; }
+
+/* ---------- card styles: Tile, Bubble, Glance (chosen in Appearance, or per device in Edit) ---------- */
+.style-pick { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.frow-wrap { flex-wrap: wrap; row-gap: 8px; }
+.bub-ic { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 50%; border: 0; padding: 0;
+  background: var(--md-surface-container-highest); color: var(--md-on-surface-variant); position: relative; z-index: 1;
+  transition: background .25s var(--ease), color .25s; }
+button.bub-ic { cursor: pointer; }
+button.bub-ic:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+.bub-ic svg.ic { width: 24px; height: 24px; }
+.bub-ic.active { color: var(--md-primary); } .bub-ic.warn { color: var(--md-warn); } .bub-ic.bad { color: var(--md-error); }
+.bub-ic.on { background: var(--md-primary); color: var(--md-on-primary); }
+.card.lit .bub-ic.on { background: color-mix(in srgb, var(--lit) 75%, #fff); color: #1b1b1b; }
+.card.alarm .bub-ic { background: var(--md-error); color: var(--md-on-error); }
+[data-open-device] { cursor: pointer; }
+body.editing .bub-ic { pointer-events: none; }
+
+/* Tile: a square, the icon is the on/off button */
+.card.dtile { --card-h: 152px; width: 172px; padding: 14px; justify-content: space-between; gap: 6px; border-color: transparent; }
+.card.dtile.is-on { background: var(--md-surface-container-high); }
+.card.dtile.lit { background: color-mix(in srgb, var(--lit) 18%, var(--md-surface-container)); }
+.dtile-top { display: flex; align-items: flex-start; gap: 6px; }
+.dtile-top .card-edit { margin-left: auto; }
+.dtile-top .quick, .dtile-top .m3-switch { margin-left: auto; }
+.dtile-body { min-width: 0; }
+.card.dtile .name { font-size: 15px; line-height: 20px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dtile-state { font-size: 13px; line-height: 18px; color: var(--md-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dtile-state b { font-weight: 500; color: var(--md-on-surface); } .dtile-state b small { font-size: 12px; } .dtile-state .word { font-size: inherit; }
+.dtile-room { font-size: 12px; color: var(--md-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Bubble: a pill; a light fills to its brightness */
+.card.bub { --card-h: 68px; width: 296px; border-radius: 999px; padding: 10px 10px 10px 12px; flex-direction: row; align-items: center; gap: 12px;
+  position: relative; border-color: transparent; }
+.bub-fill { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--lit, var(--md-primary)) 24%, transparent);
+  pointer-events: none; transition: width .35s var(--ease); }
+.bub-body { flex: 1; min-width: 0; position: relative; }
+.card.bub .name { font-size: 15px; line-height: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.bub-state { font-size: 13px; line-height: 18px; color: var(--md-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.bub > .card-edit, .card.bub > .quick, .card.bub > .m3-switch { position: relative; flex: none; }
+
+/* Glance: small and round, for a wall of readings */
+.card.glance { --card-h: 136px; width: 116px; padding: 12px 8px 10px; align-items: center; justify-content: center; text-align: center; gap: 6px;
+  border-color: transparent; position: relative; }
+.card.glance .card-edit { position: absolute; top: 4px; right: 4px; }
+.glance-val { font-size: 17px; line-height: 22px; font-weight: 500; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.glance-val small { font-size: 12px; color: var(--md-on-surface-variant); } .glance-val .word { font-size: 15px; }
+.card.glance .name { font-size: 12px; line-height: 16px; color: var(--md-on-surface-variant); display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden; max-width: 100%; }
+.card.glance.lit { background: color-mix(in srgb, var(--lit) 18%, var(--md-surface-container)); }
+
+@media (max-width: 839px) {
+  .card.dtile { width: calc(50% - 6px); padding: 12px; }
+  .card.bub { width: 100%; }
+  .card.glance { width: calc((100% - 24px) / 3); }
+}
+@media (min-width: 600px) and (max-width: 839px) { .card.dtile { width: calc((100% - 24px) / 3); } .card.bub { width: calc(50% - 6px); } .card.glance { width: calc((100% - 36px) / 4); } }
+@media (min-width: 1800px) {
+  main > .room > .grid > .card.dtile { flex: 1 1 172px; max-width: 232px; }
+  main > .room > .grid > .card.bub { flex: 1 1 296px; max-width: 400px; }
+  main > .room > .grid > .card.glance { flex: 1 1 116px; max-width: 156px; }
+}

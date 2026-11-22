@@ -475,12 +475,16 @@ async def command(device_id: str, cmd: Command):
 TAB_IDS = {"climate", "lights", "water", "pool", "doors", "windows", "security", "switches", "appliances"}   # app/static/js/01-core.js TABS
 
 
+CARD_STYLES = ("standard", "minimal", "tile", "bubble", "glance")
+
+
 class DevicePatch(BaseModel):
     name: str | None = None
     room: str | None = None
     hidden: bool | None = None
     categories: list[str] | None = None       # manual tab assignment
     auto_categories: bool | None = None       # true = go back to automatic tabs
+    card_style: str | None = None             # standard, minimal, tile, bubble, glance; "" = the dashboard's choice
 
 
 @app.patch("/api/devices/{device_id}")
@@ -490,6 +494,8 @@ async def patch_device(device_id: str, patch: DevicePatch):
         bad = set(fields["categories"]) - TAB_IDS
         if bad:
             raise HTTPException(400, f"unknown tab(s): {', '.join(sorted(bad))}")
+    if fields["card_style"] not in (None, "", *CARD_STYLES):
+        raise HTTPException(400, f"unknown card style: {fields['card_style']}")
     dev = hub.set_override(device_id, **fields)
     if not dev:
         raise HTTPException(404)
@@ -762,7 +768,7 @@ async def time_status(request: Request):
 
 
 # ---------------- history & Prometheus metrics ----------------
-async def _diag_data() -> dict:
+async def _diag_data(client: dict | None = None) -> dict:
     from . import diagnostics as diag
     extra = {}
     try:
@@ -771,7 +777,7 @@ async def _diag_data() -> dict:
         pass
     # the devices are copied here, on the event loop, so the worker thread never reads dicts that are changing
     snap = types.SimpleNamespace(devices={k: v.model_copy(deep=True) for k, v in hub.devices.items()})
-    return await asyncio.to_thread(diag.build, snap, manager, history_store, settings_mod, extra=extra)
+    return await asyncio.to_thread(diag.build, snap, manager, history_store, settings_mod, extra=extra, client=client)
 
 
 @app.get("/api/diagnostics")
@@ -793,7 +799,16 @@ _diag_files: dict[str, tuple[float, bytes]] = {}
 
 @app.post("/api/diagnostics/link")
 async def diagnostics_link(request: Request):
-    data = await _diag_data()
+    # the browser may add its view of the dashboard (pages, card fit, screen): made anonymous in app/diagnostics.py
+    client = None
+    if request.headers.get("content-type", "").startswith("application/json"):
+        body = await request.body()
+        if len(body) <= 2_000_000:
+            try:
+                client = (json.loads(body) or {}).get("dashboard")
+            except (ValueError, AttributeError):
+                client = None
+    data = await _diag_data(client)
     now = time.time()
     for k in [k for k, (exp, _) in _diag_files.items() if exp < now]:
         del _diag_files[k]

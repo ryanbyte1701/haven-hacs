@@ -51,6 +51,7 @@ class Device(BaseModel):
     # Built-in tabs this device should appear in, set by the user on the Devices page.
     # None = automatic (decided from the device's capabilities).
     categories: list[str] | None = None
+    card_style: str | None = None       # the card look for this device (None = the dashboard's own choice)
     online: bool = True
     last_seen: float = Field(default_factory=time.time)
     capabilities: dict[str, Capability] = Field(default_factory=dict)

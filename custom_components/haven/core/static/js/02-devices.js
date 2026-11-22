@@ -341,7 +341,11 @@
       <h2>${typeHead(t, items.length)}</h2><div class="grid">${items.map(card).join("")}</div></section>`).join("");
 
   function card(d) {
-    if (cardStyle === "minimal") return miniCard(d);
+    const cs = styleOf(d);
+    if (cs === "minimal") return miniCard(d);
+    if (cs === "tile") return tileCard(d);
+    if (cs === "bubble") return bubbleCard(d);
+    if (cs === "glance") return glanceCard(d);
     const [ic, tone] = deviceIcon(d);
     const sc = sparkCap(d);
     const updated = lastUpdated(d);
