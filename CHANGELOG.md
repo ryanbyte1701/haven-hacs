@@ -2,6 +2,12 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-22
+
+- Phones: scrolling just past the top no longer makes the screen wiggle. The app bar shrinks when the page scrolls;
+  the space it gave up made the page jump back over the line, so the bar kept growing and shrinking. The space is now
+  kept, and the bar only grows back near the very top.
+
 ## 2026-11-21
 
 - Three more card styles: **Tile** (a square; the round icon turns a light or switch on and off), **Bubble** (a pill

@@ -303,7 +303,23 @@ async function copyText(text) {
     snack(v === "type" ? "Grouped by device type" : "Grouped by room");
   });
   $("#viewmode").onclick = () => { mode = mode === "table" ? "cards" : "table"; store("viewmode", mode); document.body.classList.remove("quiet"); schedule(); };
-  addEventListener("scroll", () => $(".appbar").classList.toggle("scrolled", scrollY > 24), { passive: true });
+  // The app bar gets shorter once the page scrolls (60 px on phones). The space it gives up is kept by a spacer under it, so
+  // the page doesn't jump, and it shrinks past 24 px but only grows back under 8 px: otherwise the jump scrolled the
+  // page back over the line and the bar kept flipping (the screen wiggled).
+  const barScroll = () => {
+    const bar = $(".appbar"); if (!bar) return;
+    const on = bar.classList.contains("scrolled"), want = on ? scrollY > 8 : scrollY > 24;
+    if (want === on) return;
+    let gap = bar.nextElementSibling?.classList.contains("appbar-gap") ? bar.nextElementSibling : null;
+    if (!gap) { gap = document.createElement("div"); gap.className = "appbar-gap"; gap.setAttribute("aria-hidden", "true"); bar.after(gap); }
+    // scroll anchoring would react to the in-between layout (bar already short, spacer not yet grown): off for this step
+    const root = document.documentElement; root.style.overflowAnchor = "none";
+    if (want) { const h = bar.offsetHeight; bar.classList.add("scrolled"); gap.style.height = `${Math.max(0, h - bar.offsetHeight)}px`; }
+    else { bar.classList.remove("scrolled"); gap.style.height = "0px"; }
+    void bar.offsetHeight;
+    requestAnimationFrame(() => { root.style.overflowAnchor = ""; });
+  };
+  addEventListener("scroll", barScroll, { passive: true });
 
   // ---------- in-place updates: live data must not wipe focus, scroll or open menus ----------
   const nativeHTML = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
