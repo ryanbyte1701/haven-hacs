@@ -2,6 +2,14 @@
 
 Changes to Haven for Home Assistant. This file is generated from [ryanbyte1701/haven](https://github.com/ryanbyte1701/haven/blob/main/CHANGELOG.md).
 
+## 2026-11-24
+
+- Settings → Appearance has a live preview: sample devices (a lamp, a room sensor, a lock, a door, a plug, a leak
+  sensor), a history chart with a gap and common buttons, drawn with your theme, colour, temperature unit, card
+  style, chart style, Connect readings and Cards/Table choice as you change them. It sits beside the choices on a
+  wide screen and above them on a phone, and it can't be tapped.
+- Tile cards for a lock or valve use the lock or valve button as their icon (the icon showed twice).
+
 ## 2026-11-22
 
 - Phones: scrolling just past the top no longer makes the screen wiggle. The app bar shrinks when the page scrolls;

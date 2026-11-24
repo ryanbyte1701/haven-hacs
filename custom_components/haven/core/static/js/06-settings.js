@@ -85,6 +85,40 @@
     if (/^ok/.test(st)) { const b = st.replace(/^ok:?\s*/, ""); return [sec.id === "history" ? `On · ${STORE_LABEL[b] || b || "saving"}` : sec.id === "demo" ? "On" : "Connected", "good"]; }
     return [st ? st[0].toUpperCase() + st.slice(1) : "Starting…", "info"];
   }
+  // ---------- Appearance preview: sample devices drawn by the real card and chart code, so it always matches ----------
+  function previewDevices() {
+    const now = Date.now() / 1000, c = (name, value, extra = {}) => [name, { name, value, writable: false, updated: now - 120, ...extra }];
+    const dev = (id, name, room, caps, attributes = {}) => ({ id: "preview:" + id, name, room, source: "homeassistant", model: "", online: true, hidden: false,
+      attributes, card_style: null, capabilities: Object.fromEntries(caps) });
+    return [
+      dev("lamp", "Living Room Lamp", "Living Room", [c("light", true, { writable: true }), c("brightness", 70, { writable: true, unit: "%", min: 0, max: 100 }),
+        c("color_temp", 2900, { writable: true, unit: "K", min: 2000, max: 6500 })]),
+      dev("climate", "Bedroom", "Bedroom", [c("temperature", 21.4, { unit: "°C" }), c("humidity", 44, { unit: "%" }), c("battery", 86, { unit: "%" })]),
+      dev("lock", "Front Door", "Entry", [c("lock", "locked", { writable: true, options: ["locked", "unlocked"] }), c("battery", 64, { unit: "%" })]),
+      dev("door", "Back Door", "Kitchen", [c("contact", "open")], { kind: "door" }),
+      dev("plug", "Coffee Maker", "Kitchen", [c("switch", true, { writable: true }), c("power", 845, { unit: "W" })], { kind: "smart_plug" }),
+      dev("leak", "Sink Leak", "Kitchen", [c("leak", false), c("battery", 92, { unit: "%" })]),
+    ];
+  }
+  function previewHtml() {
+    const list = previewDevices(), now = Date.now() / 1000;
+    // a day of bedroom readings, with a three-hour gap (a sensor that reports now and then)
+    const pts = []; for (let i = 0; i <= 96; i++) { const t = now - 86400 + i * 900; if (i > 40 && i < 52) continue;
+      pts.push({ t, v: 20.5 + Math.sin(i / 9) * 1.2 + (i % 7) * 0.05 }); }
+    sparks.set("preview:climate|temperature", pts.map(p => ({ t: p.t, v: p.v })));
+    let chart = ""; try { chart = numChart(list[1], "temperature", pts, now - 86400, now); } catch { chart = ""; }
+    const cards = mode === "table" ? tableView(list) : `<div class="grid prev-grid">${list.map(card).join("")}</div>`;
+    return `<aside class="set-card appear-prev" aria-label="Preview">
+      <div class="prev-head"><h3>Preview</h3><small class="muted">Sample devices · ${esc((CARD_STYLES.find(s => s[0] === cardStyle) || CARD_STYLES[0])[1])} cards · ${mode === "table" ? "Table" : "Cards"}</small></div>
+      <div class="prev-body" inert>
+        <section class="room"><h2>Kitchen &amp; more</h2>${cards}</section>
+        <div class="prev-chart"><div class="prev-label">History · Bedroom temperature</div>${chart}</div>
+        <div class="prev-controls"><button type="button" class="filled-btn">${icon("check")}Save</button><button type="button" class="tonal-btn">Cancel</button>
+          <button type="button" class="fchip on">${icon("check")}Selected</button><button type="button" class="fchip">Filter</button>
+          <span class="m3-switch on" role="switch" aria-checked="true"></span><span class="m3-switch" role="switch" aria-checked="false"></span></div>
+      </div></aside>`;
+  }
+
   function appearanceSummary() {
     return [{ light: "Light", dark: "Dark", auto: "Auto" }[load("mode", "auto")], root.dataset.seed[0].toUpperCase() + root.dataset.seed.slice(1),
       `°${unit}`, `${(CARD_STYLES.find(s => s[0] === cardStyle) || CARD_STYLES[0])[1]} cards`, mode === "table" ? "Table" : "Cards",
@@ -445,6 +479,7 @@
       const pref = load("mode", "auto");
       const seg = (id, items, cur, attr) => `<div class="segmented" id="${id}">${items.map(([v, l, ic]) => `<button type="button" data-${attr}="${v}" class="${cur === v ? "on" : ""}">${ic ? icon(ic) : ""}${l}</button>`).join("")}</div>`;
       body = `<div class="dhead"><span class="avatar big">${icon("palette")}</span><div><h2>Appearance</h2><small>Saved on this device only</small></div></div>
+        <div class="appear-wrap">${previewHtml()}
         <section class="set-card" id="appearance">
           <div class="frow"><span>Theme</span>${seg("mode-seg", [["light", "Light", "light_mode"], ["dark", "Dark", "dark_mode"], ["auto", "Auto", "brightness_auto"]], pref, "mode")}</div>
           <div class="frow"><span>Color</span><div class="swatches" id="swatches">${Object.entries(SEEDS).map(([n, c]) =>
@@ -459,7 +494,7 @@
             <button type="button" class="m3-switch ${joinGaps ? "on" : ""}" role="switch" aria-checked="${joinGaps}" data-joingaps aria-label="Connect readings across gaps"></button></div>
           <div class="frow"><span>Layout</span>${seg("layout-seg", [["cards", "Cards", "grid_view"], ["table", "Table", "table_rows"]], mode, "layout")}</div>
           <div class="frow"><span>Group by<small class="muted">for pages you haven't set yet</small></span>${seg("groupby-seg", [["room", "Room", "door_front"], ["type", "Type", "category"]], load("groupByDefault", "room"), "gbdefault")}</div>
-        </section>`;
+        </section></div>`;
     } else if (settingsSub === "smart") {
       body = smartHtml();
     } else if (settingsSub === "diagnostics") {
@@ -512,7 +547,7 @@
           <div class="set-actions">${loginBtn}${actBtns}<span style="flex:1"></span><button type="button" class="filled-btn" data-save>${icon("save")}Save</button></div>
         </section>`;
     }
-    $("#rooms").innerHTML = `<div class="settings-wrap detail">${back}${body}</div>`;
+    $("#rooms").innerHTML = `<div class="settings-wrap detail ${settingsSub === "appearance" ? "appear-page" : ""}">${back}${body}</div>`;
   }
 
   function collectSection(el) {

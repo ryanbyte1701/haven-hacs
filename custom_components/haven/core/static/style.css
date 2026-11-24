@@ -1519,3 +1519,25 @@ body.editing .bub-ic { pointer-events: none; }
   main > .room > .grid > .card.bub { flex: 1 1 296px; max-width: 400px; }
   main > .room > .grid > .card.glance { flex: 1 1 116px; max-width: 156px; }
 }
+
+/* Settings → Appearance: a live preview beside the choices (above them on a phone) */
+.appear-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.appear-wrap > #appearance { margin: 0; }
+.appear-prev { padding: 16px; overflow: hidden; }
+.prev-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.prev-head h3 { margin: 0; font-size: 16px; font-weight: 500; }
+.prev-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.prev-body .room { width: 100%; margin: 0; }
+.prev-body .room > h2 { margin-top: 0; }
+.prev-grid { max-height: 560px; overflow: hidden; }
+.prev-chart { min-width: 0; } .prev-chart svg { width: 100%; }
+.prev-label { font-size: 12px; color: var(--md-on-surface-variant); margin-bottom: 4px; }
+.prev-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.prev-controls > * { flex: none; }
+/* the Appearance page is wider, so the choices and the preview sit side by side */
+.settings-wrap.detail.appear-page { max-width: 1240px; }
+@media (min-width: 1240px) {
+  .appear-wrap { grid-template-columns: minmax(440px, 560px) minmax(0, 1fr); }
+  .appear-wrap > .appear-prev { order: 2; position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow: auto; }
+}
+@media (max-width: 1239px) { .prev-grid { max-height: 400px; -webkit-mask-image: linear-gradient(#000 85%, transparent); mask-image: linear-gradient(#000 85%, transparent); } }

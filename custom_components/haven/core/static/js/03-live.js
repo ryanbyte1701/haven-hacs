@@ -219,7 +219,7 @@
   function tileCard(d) {                // a square: icon button on top, name and state below
     const [cls, sty] = cardClasses(d), { big, small } = cardBits(d), k = mainSwitch(d);
     return `<article class="card dtile ${cls}" data-id="${esc(d.id)}" ${sty}>
-      <div class="dtile-top">${iconBubble(d, "bub-ic")}${editBtn}${k ? "" : quickAction(d)}</div>
+      <div class="dtile-top">${k ? iconBubble(d, "bub-ic") : quickAction(d) || iconBubble(d, "bub-ic")}${editBtn}</div>
       <div class="dtile-body" ${openArea()}><div class="name" title="${esc(d.name)}">${esc(d.name)}</div>
         <div class="dtile-state">${k ? esc(stateText(d)) : big ? `<b>${big}</b>${small ? ` <span>${esc(small)}</span>` : ""}` : esc(small)}</div>
         ${roomLine(d) ? `<div class="dtile-room">${roomLine(d)}</div>` : ""}</div></article>`;
